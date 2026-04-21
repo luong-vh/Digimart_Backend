@@ -1,0 +1,27 @@
+services:
+  app:
+    image: shop-be
+    ports:
+      - 8080:8080
+    env_file:
+      - ./.env
+    networks:
+      - shop-be-networks
+    depends_on:
+      - redis
+    
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379" # Optional: allows you to connect to Redis from your host machine
+    networks:
+      - shop-be-networks
+    volumes:
+      - redis_data:/data # Persist data even if container stops
+
+volumes:
+  redis_data:
+
+networks:
+  shop-be-networks:
+    driver: bridge

@@ -1,0 +1,27 @@
+package main
+
+import (
+	"log"
+
+	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/bootstrap"
+	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
+)
+
+func main() {
+	// Initialize Gin router
+	r, err := bootstrap.Init()
+	if err != nil {
+		log.Fatalf("failed to initialize application: %v", err)
+	}
+
+	// Start the server
+	port := config.Cfg.Port
+	log.Printf("Server is running at http://localhost:%s\n", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("failed to run server: %v", err)
+	}
+
+	for _, ri := range r.Routes() {
+		println(ri.Method, ri.Path)
+	}
+}
