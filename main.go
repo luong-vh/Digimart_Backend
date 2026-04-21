@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/bootstrap"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
+	"github.com/luong-vh/Digimart_Backend/internal/bootstrap"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
 )
 
 func main() {

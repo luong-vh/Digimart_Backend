@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 

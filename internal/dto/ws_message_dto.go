@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
 )
 
 type WebSocketMessageType string

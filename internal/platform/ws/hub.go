@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/dto"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/platform/bus"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/util"
+	"github.com/luong-vh/Digimart_Backend/internal/dto"
+	"github.com/luong-vh/Digimart_Backend/internal/platform/bus"
+	"github.com/luong-vh/Digimart_Backend/internal/util"
 )
 
 // Hub maintains the set of active clients and broadcasts messages to them.

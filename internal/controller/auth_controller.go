@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/apperror"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/auth"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/dto"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/luong-vh/Digimart_Backend/internal/apperror"
+	"github.com/luong-vh/Digimart_Backend/internal/auth"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
+	"github.com/luong-vh/Digimart_Backend/internal/dto"
+	"github.com/luong-vh/Digimart_Backend/internal/service"
 )
 
 // AuthController handles authentication-related requests.

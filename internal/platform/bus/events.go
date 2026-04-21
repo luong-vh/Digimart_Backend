@@ -1,8 +1,8 @@
 package bus
 
 import (
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/dto"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
+	"github.com/luong-vh/Digimart_Backend/internal/dto"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
 )
 
 // Event Topics

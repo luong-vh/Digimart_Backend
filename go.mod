@@ -1,4 +1,4 @@
-module github.com/DucLove1/SE357-ShoppingManagement-BE
+module github.com/luong-vh/Digimart_Backend
 
 go 1.25.1
 

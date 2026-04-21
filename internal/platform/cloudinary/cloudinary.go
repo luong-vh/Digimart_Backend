@@ -7,10 +7,10 @@ import (
 	"mime/multipart"
 	"time"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
 	"github.com/cloudinary/cloudinary-go/v2"
 	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
 )
 
 func newCld() (*cloudinary.Cloudinary, error) {

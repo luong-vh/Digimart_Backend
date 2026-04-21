@@ -1,9 +1,9 @@
 package route
 
 import (
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/controller"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/luong-vh/Digimart_Backend/internal/controller"
+	"github.com/luong-vh/Digimart_Backend/internal/middleware"
 )
 
 func RegisterOrderRoutes(r *gin.RouterGroup, orderController *controller.OrderController) {

@@ -3,13 +3,14 @@ package auth
 import (
 	"context"
 	"fmt"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/apperror"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
+
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/luong-vh/Digimart_Backend/internal/apperror"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
 )
 
 // AuthUser represents the authenticated user with their settings cached.

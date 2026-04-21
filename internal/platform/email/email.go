@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/smtp"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
 )
 
 // Sender defines the interface for an email sender.

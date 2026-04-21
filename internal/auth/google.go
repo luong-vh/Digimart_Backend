@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/config"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
+
 	"io"
 	"net/http"
+
+	"github.com/luong-vh/Digimart_Backend/internal/config"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 // GoogleUserInfo holds the essential user information returned from Google.

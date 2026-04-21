@@ -3,10 +3,10 @@ package service
 import (
 	"strings"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/apperror"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/dto"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/repo"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/util"
+	"github.com/luong-vh/Digimart_Backend/internal/apperror"
+	"github.com/luong-vh/Digimart_Backend/internal/dto"
+	"github.com/luong-vh/Digimart_Backend/internal/repo"
+	"github.com/luong-vh/Digimart_Backend/internal/util"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )

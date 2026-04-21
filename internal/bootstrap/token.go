@@ -1,7 +1,7 @@
 package bootstrap
 
 import (
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/auth"
+	"github.com/luong-vh/Digimart_Backend/internal/auth"
 	"github.com/redis/go-redis/v9"
 )
 

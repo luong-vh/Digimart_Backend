@@ -3,7 +3,7 @@ package repo
 import (
 	"context"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"

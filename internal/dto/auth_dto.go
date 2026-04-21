@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
+import "github.com/luong-vh/Digimart_Backend/internal/model"
 
 type SendEmailVerificationRequest struct {
 	Email string `json:"email" binding:"required,email"`

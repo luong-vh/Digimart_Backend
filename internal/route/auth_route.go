@@ -1,8 +1,8 @@
 package route
 
 import (
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/controller"
 	"github.com/gin-gonic/gin"
+	"github.com/luong-vh/Digimart_Backend/internal/controller"
 )
 
 // RegisterAuthRoutes registers all authentication-related routes.

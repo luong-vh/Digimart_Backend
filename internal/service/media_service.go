@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/platform/cloudinary"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
+	"github.com/luong-vh/Digimart_Backend/internal/platform/cloudinary"
 )
 
 type MediaService interface {

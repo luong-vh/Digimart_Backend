@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/apperror"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/auth"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/dto"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/model"
-	"github.com/DucLove1/SE357-ShoppingManagement-BE/internal/repo"
 	"github.com/gin-gonic/gin"
+	"github.com/luong-vh/Digimart_Backend/internal/apperror"
+	"github.com/luong-vh/Digimart_Backend/internal/auth"
+	"github.com/luong-vh/Digimart_Backend/internal/dto"
+	"github.com/luong-vh/Digimart_Backend/internal/model"
+	"github.com/luong-vh/Digimart_Backend/internal/repo"
 )
 
 // userRepo is injected at startup to load user settings in middleware
