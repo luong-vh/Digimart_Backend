@@ -1,0 +1,984 @@
+openapi: 3.0.3
+info:
+  title: Digimart API
+  version: 1.0.0
+  description: E-commerce API for Digimart platform
+
+servers:
+  - url: http://localhost:8080/api
+    description: Local development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Auth Schemas
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - full_name
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        password:
+          type: string
+          minLength: 6
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            user:
+              type: object
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+
+    # Product Schemas
+    CreateProductRequest:
+      type: object
+      required:
+        - category_id
+        - name
+        - description
+        - thumbnail
+        - base_price
+      properties:
+        category_id:
+          type: string
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        brand:
+          type: string
+        thumbnail:
+          $ref: '#/components/schemas/Image'
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+        videos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Video'
+        base_price:
+          type: number
+          minimum: 0
+        discount_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        is_has_variant:
+          type: boolean
+        stock_quantity:
+          type: integer
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductVariant'
+
+    Image:
+      type: object
+      required:
+        - url
+        - public_id
+      properties:
+        url:
+          type: string
+        public_id:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+
+    Video:
+      type: object
+      required:
+        - url
+        - public_id
+      properties:
+        url:
+          type: string
+        public_id:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+
+    ProductVariant:
+      type: object
+      required:
+        - title
+        - stock_quantity
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        price_adjustment:
+          type: number
+        stock_quantity:
+          type: integer
+
+    ProductResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        category_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        brand:
+          type: string
+        thumbnail:
+          $ref: '#/components/schemas/Image'
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+        base_price:
+          type: number
+        discount_percent:
+          type: number
+        is_has_variant:
+          type: boolean
+        stock_quantity:
+          type: integer
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductVariant'
+        status:
+          type: string
+          enum: [draft, active]
+
+    # Category Schemas
+    CreateCategoryRequest:
+      type: object
+      required:
+        - name
+      properties:
+        parent_id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+
+    CategoryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        parent_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # Address (Province) Schemas
+    CreateProvinceRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+
+    ProvinceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        wards:
+          type: array
+          items:
+            $ref: '#/components/schemas/WardResponse'
+        ward_count:
+          type: integer
+
+    WardResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        province_id:
+          type: string
+        name:
+          type: string
+
+    # Cart Schemas
+    AddCartItemRequest:
+      type: object
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          type: string
+        variant_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+
+    AddCartItemsRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddCartItemRequest'
+
+    UpdateCartItemRequest:
+      type: object
+      required:
+        - item_id
+        - quantity
+      properties:
+        item_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 0
+
+    CartItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        product_id:
+          type: string
+        variant_id:
+          type: string
+        quantity:
+          type: integer
+        is_available:
+          type: boolean
+        added_at:
+          type: string
+          format: date-time
+        snapshot:
+          $ref: '#/components/schemas/CartItemSnapshot'
+
+    CartItemSnapshot:
+      type: object
+      properties:
+        product_id:
+          type: string
+        product_name:
+          type: string
+        brand:
+          type: string
+        thumbnail:
+          $ref: '#/components/schemas/Image'
+        base_price:
+          type: number
+        discount_percent:
+          type: number
+        final_price:
+          type: number
+        stock_quantity:
+          type: integer
+        is_available:
+          type: boolean
+
+    CartResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItemResponse'
+        total_amount:
+          type: number
+        total_quantity:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # Common
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        code:
+          type: string
+
+paths:
+  # ========== AUTH ==========
+  /auth/register:
+    post:
+      summary: Register new user
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      summary: User login
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+
+  /auth/logout:
+    post:
+      summary: Logout user
+      tags:
+        - Auth
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+
+  # ========== PRODUCTS ==========
+  /products:
+    get:
+      summary: Get products list
+      tags:
+        - Products
+      parameters:
+        - name: category_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, active]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: min_price
+          in: query
+          schema:
+            type: number
+        - name: max_price
+          in: query
+          schema:
+            type: number
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            default: created_at
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: Products retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductResponse'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /products/{id}:
+    get:
+      summary: Get product by ID
+      tags:
+        - Products
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '404':
+          description: Product not found
+
+  /products/seller:
+    post:
+      summary: Create product (Admin/Seller only)
+      tags:
+        - Products
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin/Seller access required
+
+  /products/seller/{id}:
+    put:
+      summary: Update product (Admin/Seller only)
+      tags:
+        - Products
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                base_price:
+                  type: number
+                status:
+                  type: string
+                  enum: [draft, active]
+      responses:
+        '200':
+          description: Product updated
+        '404':
+          description: Product not found
+
+    delete:
+      summary: Delete product (Admin/Seller only)
+      tags:
+        - Products
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product deleted
+        '404':
+          description: Product not found
+
+  # ========== CATEGORIES ==========
+  /categories:
+    get:
+      summary: Get all categories
+      tags:
+        - Categories
+      responses:
+        '200':
+          description: Categories retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CategoryResponse'
+
+  /categories/{id}:
+    get:
+      summary: Get category by ID
+      tags:
+        - Categories
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Category retrieved
+
+  /categories/admin:
+    post:
+      summary: Create category (Admin only)
+      tags:
+        - Categories
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Category created
+
+  /categories/admin/{id}:
+    put:
+      summary: Update category (Admin only)
+      tags:
+        - Categories
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '200':
+          description: Category updated
+
+    delete:
+      summary: Delete category (Admin only)
+      tags:
+        - Categories
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Category deleted
+
+  # ========== PROVINCES (ADDRESS) ==========
+  /provinces:
+    get:
+      summary: Get all provinces
+      tags:
+        - Address
+      responses:
+        '200':
+          description: Provinces retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProvinceResponse'
+
+  /provinces/{id}:
+    get:
+      summary: Get province by ID
+      tags:
+        - Address
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Province retrieved
+
+  /provinces/{id}/wards:
+    get:
+      summary: Get wards by province ID
+      tags:
+        - Address
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wards retrieved
+
+  /provinces/admin:
+    post:
+      summary: Create province (Admin only)
+      tags:
+        - Address
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProvinceRequest'
+      responses:
+        '201':
+          description: Province created
+
+  /provinces/admin/{id}:
+    put:
+      summary: Update province (Admin only)
+      tags:
+        - Address
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProvinceRequest'
+      responses:
+        '200':
+          description: Province updated
+
+    delete:
+      summary: Delete province (Admin only)
+      tags:
+        - Address
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Province deleted
+
+  # ========== CART ==========
+  /cart:
+    get:
+      summary: Get user cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cart retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CartResponse'
+
+    delete:
+      summary: Clear cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cart cleared
+
+  /cart/items:
+    post:
+      summary: Add item to cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+      responses:
+        '200':
+          description: Item added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CartResponse'
+
+    put:
+      summary: Update item quantity
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItemRequest'
+      responses:
+        '200':
+          description: Quantity updated
+
+  /cart/items/{itemId}:
+    delete:
+      summary: Remove item from cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item removed
+
+  /cart/items/batch:
+    post:
+      summary: Add multiple items to cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemsRequest'
+      responses:
+        '200':
+          description: Items added
+
+    delete:
+      summary: Remove multiple items from cart
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+      responses:
+        '200':
+          description: Items removed
+
+  /cart/validate:
+    get:
+      summary: Validate cart for checkout
+      tags:
+        - Cart
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cart validated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      is_valid:
+                        type: boolean
+                      total_price:
+                        type: number
+                      invalid_items:
+                        type: array
+                        items:
+                          type: object

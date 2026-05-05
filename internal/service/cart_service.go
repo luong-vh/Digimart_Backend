@@ -177,6 +177,19 @@ func (s *cartService) GetItemCount(ctx context.Context, userID string) (int, err
 }
 
 func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCartItemRequest) (*dto.CartResponse, error) {
+	// Check if product requires variant
+	product, err := s.productRepo.GetByID(ctx, req.ProductID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, apperror.ErrProductNotFound
+		}
+		return nil, err
+	}
+
+	// Require variant_id for products with variants
+	if product.IsHasVariant && req.VariantID == "" {
+		return nil, apperror.ErrVariantRequired
+	}
 
 	productObjID, _ := primitive.ObjectIDFromHex(req.ProductID)
 	var variantObjID *primitive.ObjectID
@@ -185,6 +198,29 @@ func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCar
 		variantObjID = &vid
 	}
 
+	// Check if item already exists in cart
+	cart, err := s.cartRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range cart.Items {
+		// Match by product_id and variant_id (both nil or both equal)
+		if item.ProductID == productObjID {
+			if (item.VariantID == nil && variantObjID == nil) ||
+				(item.VariantID != nil && variantObjID != nil && *item.VariantID == *variantObjID) {
+				// Item exists, update quantity
+				newQuantity := item.Quantity + req.Quantity
+				err = s.cartRepo.UpdateItemQuantity(ctx, userID, item.ID.Hex(), newQuantity)
+				if err != nil {
+					return nil, err
+				}
+				return s.GetCart(ctx, userID)
+			}
+		}
+	}
+
+	// Item not found, add new item
 	cartItem := model.CartItem{
 		ID:        primitive.NewObjectID(),
 		ProductID: productObjID,
@@ -194,7 +230,7 @@ func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCar
 		UpdatedAt: time.Now(),
 	}
 
-	_, err := s.cartRepo.AddItem(ctx, userID, cartItem)
+	_, err = s.cartRepo.AddItem(ctx, userID, cartItem)
 	if err != nil {
 		return nil, err
 	}

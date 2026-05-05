@@ -36,10 +36,14 @@ type UserRepo interface {
 
 type userRepo struct {
 	userCollection *mongo.Collection
+	cartRepo       CartRepo
 }
 
-func NewUserRepo(db *mongo.Database) UserRepo {
-	return &userRepo{userCollection: db.Collection(config.UserColName)}
+func NewUserRepo(db *mongo.Database, cartRepo CartRepo) UserRepo {
+	return &userRepo{
+		userCollection: db.Collection(config.UserColName),
+		cartRepo:       cartRepo,
+	}
 }
 
 func (r *userRepo) GetByIDs(ctx context.Context, ids []string) ([]*model.User, error) {
@@ -77,6 +81,13 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) (*model.User, e
 	if oid, ok := result.InsertedID.(primitive.ObjectID); ok {
 		user.ID = oid
 	}
+
+	// Create cart for the new user
+	cart := &model.Cart{
+		UserID: user.ID,
+		Items:  []model.CartItem{},
+	}
+	_, _ = r.cartRepo.Create(ctx, cart)
 
 	return user, nil
 }

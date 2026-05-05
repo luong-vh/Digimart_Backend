@@ -55,12 +55,15 @@ type Controllers struct {
 }
 
 func initRepos(client *mongo.Client, db *mongo.Database) *Repos {
+	// Create CartRepo first (needed by UserRepo)
+	cartRepo := repo.NewCartRepo(db)
+
 	return &Repos{
-		UserRepo:              repo.NewUserRepo(db),
+		UserRepo:              repo.NewUserRepo(db, cartRepo),
 		EmailVerificationRepo: repo.NewEmailVerificationRepo(db),
 		PasswordResetRepo:     repo.NewPasswordResetRepo(db),
 		ProductRepo:           repo.NewProductRepo(db),
-		CartRepo:              repo.NewCartRepo(db),
+		CartRepo:              cartRepo,
 		ProvinceRepo:          repo.NewProvinceRepo(db),
 		OrderRepo:             repo.NewOrderRepo(db),
 		CategoryRepo:          repo.NewCategoryRepo(db),

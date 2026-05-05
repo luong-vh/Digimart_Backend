@@ -116,7 +116,7 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 		return
 	}
 
-	dto.SendSuccessWithPagination(ctx, http.StatusOK, "Products retrieved successfully", products, total, opts.Skip, opts.Limit)
+	dto.SendSuccessWithPagination(ctx, http.StatusOK, "Products retrieved successfully", products, opts.Skip, opts.Limit, total)
 }
 
 // GetProductsBySeller retrieves products by seller ID
