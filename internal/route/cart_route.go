@@ -12,13 +12,12 @@ func RegisterCartRoutes(r *gin.RouterGroup, cartController *controller.CartContr
 	{
 		// Cart operations
 		cart.GET("", cartController.GetCart)
-		cart.GET("/refresh", cartController.GetCartWithRefresh)
-		cart.DELETE("", cartController.ClearCart)
+		//cart.DELETE("", cartController.ClearCart)
 
 		// Item operations
 		cart.POST("/items", cartController.AddItem)
 		cart.PUT("/items", cartController.UpdateItemQuantity)
-		cart.DELETE("/items/:productId", cartController.RemoveItem)
+		cart.DELETE("/items/:itemId", cartController.RemoveItem)
 
 		// Batch operations
 		cart.POST("/items/batch", cartController.AddItems)
@@ -28,10 +27,4 @@ func RegisterCartRoutes(r *gin.RouterGroup, cartController *controller.CartContr
 		cart.GET("/validate", cartController.ValidateCart)
 	}
 
-	// Admin endpoints
-	cartAdmin := r.Group("/cart/admin")
-	cartAdmin.Use(middleware.RequireAuth(), middleware.RequireAdmin())
-	{
-		cartAdmin.GET("/stats", cartController.GetCartStats)
-	}
 }

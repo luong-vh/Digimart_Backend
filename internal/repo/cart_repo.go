@@ -21,12 +21,13 @@ type CartRepo interface {
 	GetByUserID(ctx context.Context, userID string) (*model.Cart, error)
 	Find(ctx context.Context, filter Filter, opts *FindOptions) ([]*model.Cart, int64, error)
 
-	// Cart item operations
-	AddItem(ctx context.Context, userID string, item model.CartItem) error
-	UpdateItemQuantity(ctx context.Context, userID string, productID string, variantID *string, quantity int) error
-	RemoveItem(ctx context.Context, userID string, productID string, variantID *string) error
+	// Cart item operations (by item ID)
+	AddItem(ctx context.Context, userID string, item model.CartItem) (*model.CartItem, error)
+	GetCartItemByID(ctx context.Context, userID string, itemID string) (*model.CartItem, error)
+	UpdateItem(ctx context.Context, userID string, itemID string, item model.CartItem) error
+	UpdateItemQuantity(ctx context.Context, userID string, itemID string, quantity int) error
+	RemoveItem(ctx context.Context, userID string, itemID string) error
 	ClearCart(ctx context.Context, userID string) error
-	UpdateItemSnapshot(ctx context.Context, userID string, productID string, variantID *string, snapshot *model.CartItemSnapshot) error
 
 	// Stats methods
 	CountTotal(ctx context.Context) (int64, error)
@@ -194,54 +195,19 @@ func (r *cartRepo) Find(ctx context.Context, filter Filter, opts *FindOptions) (
 }
 
 // Cart item operations
-func (r *cartRepo) AddItem(ctx context.Context, userID string, item model.CartItem) error {
+func (r *cartRepo) AddItem(ctx context.Context, userID string, item model.CartItem) (*model.CartItem, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		return apperror.ErrInvalidID
+		return nil, apperror.ErrInvalidID
 	}
 
+	// Generate new ID for the item
+	item.ID = primitive.NewObjectID()
 	item.AddedAt = time.Now()
 
-	// Check if cart exists, create if not
 	filter := bson.M{"user_id": userObjID}
 
-	// Try to find existing item and update quantity
-	var updateFilter bson.M
-	if item.VariantID != nil {
-		updateFilter = bson.M{
-			"user_id":          userObjID,
-			"items.product_id": item.ProductID,
-			"items.variant_id": item.VariantID,
-		}
-	} else {
-		updateFilter = bson.M{
-			"user_id":          userObjID,
-			"items.product_id": item.ProductID,
-			"items.variant_id": bson.M{"$exists": false},
-		}
-	}
-
-	// Try to increment existing item quantity
-	updateExisting := bson.M{
-		"$inc": bson.M{"items.$.quantity": item.Quantity},
-		"$set": bson.M{
-			"items.$.snapshot": item.Snapshot,
-			"updated_at":       time.Now(),
-		},
-	}
-
-	result, err := r.cartCollection.UpdateOne(ctx, updateFilter, updateExisting)
-	if err != nil {
-		return err
-	}
-
-	// If item exists, we're done
-	if result.MatchedCount > 0 {
-		return nil
-	}
-
-	// Item doesn't exist, add new item to cart
-	// Use upsert to create cart if it doesn't exist
+	// Add new item to cart, create cart if not exists
 	update := bson.M{
 		"$push": bson.M{"items": item},
 		"$set":  bson.M{"updated_at": time.Now()},
@@ -253,43 +219,71 @@ func (r *cartRepo) AddItem(ctx context.Context, userID string, item model.CartIt
 
 	opts := options.Update().SetUpsert(true)
 	_, err = r.cartCollection.UpdateOne(ctx, filter, update, opts)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
 }
 
-func (r *cartRepo) UpdateItemQuantity(ctx context.Context, userID string, productID string, variantID *string, quantity int) error {
+func (r *cartRepo) GetCartItemByID(ctx context.Context, userID string, itemID string) (*model.CartItem, error) {
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, apperror.ErrInvalidID
+	}
+
+	itemObjID, err := primitive.ObjectIDFromHex(itemID)
+	if err != nil {
+		return nil, apperror.ErrInvalidID
+	}
+
+	filter := bson.M{
+		"user_id":    userObjID,
+		"items._id": itemObjID,
+	}
+
+	projection := bson.M{"items.$": 1}
+	var result struct {
+		Items []model.CartItem `bson:"items"`
+	}
+
+	err = r.cartCollection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, mongo.ErrNoDocuments
+		}
+		return nil, err
+	}
+
+	if len(result.Items) == 0 {
+		return nil, mongo.ErrNoDocuments
+	}
+
+	return &result.Items[0], nil
+}
+
+func (r *cartRepo) UpdateItem(ctx context.Context, userID string, itemID string, item model.CartItem) error {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return apperror.ErrInvalidID
 	}
 
-	productObjID, err := primitive.ObjectIDFromHex(productID)
+	itemObjID, err := primitive.ObjectIDFromHex(itemID)
 	if err != nil {
 		return apperror.ErrInvalidID
 	}
 
-	var filter bson.M
-	if variantID != nil {
-		variantObjID, err := primitive.ObjectIDFromHex(*variantID)
-		if err != nil {
-			return apperror.ErrInvalidID
-		}
-		filter = bson.M{
-			"user_id":          userObjID,
-			"items.product_id": productObjID,
-			"items.variant_id": variantObjID,
-		}
-	} else {
-		filter = bson.M{
-			"user_id":          userObjID,
-			"items.product_id": productObjID,
-			"items.variant_id": bson.M{"$exists": false},
-		}
+	item.ID = itemObjID
+	item.AddedAt = time.Now()
+
+	filter := bson.M{
+		"user_id":   userObjID,
+		"items._id": itemObjID,
 	}
 
 	update := bson.M{
 		"$set": bson.M{
-			"items.$.quantity": quantity,
-			"updated_at":       time.Now(),
+			"items.$":    item,
+			"updated_at": time.Now(),
 		},
 	}
 
@@ -303,34 +297,54 @@ func (r *cartRepo) UpdateItemQuantity(ctx context.Context, userID string, produc
 	return nil
 }
 
-func (r *cartRepo) RemoveItem(ctx context.Context, userID string, productID string, variantID *string) error {
+func (r *cartRepo) UpdateItemQuantity(ctx context.Context, userID string, itemID string, quantity int) error {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return apperror.ErrInvalidID
 	}
 
-	productObjID, err := primitive.ObjectIDFromHex(productID)
+	itemObjID, err := primitive.ObjectIDFromHex(itemID)
+	if err != nil {
+		return apperror.ErrInvalidID
+	}
+
+	filter := bson.M{
+		"user_id":   userObjID,
+		"items._id": itemObjID,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"items.$.quantity": quantity,
+			"updated_at":     time.Now(),
+		},
+	}
+
+	result, err := r.cartCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return mongo.ErrNoDocuments
+	}
+	return nil
+}
+
+func (r *cartRepo) RemoveItem(ctx context.Context, userID string, itemID string) error {
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return apperror.ErrInvalidID
+	}
+
+	itemObjID, err := primitive.ObjectIDFromHex(itemID)
 	if err != nil {
 		return apperror.ErrInvalidID
 	}
 
 	filter := bson.M{"user_id": userObjID}
 
-	var pullFilter bson.M
-	if variantID != nil {
-		variantObjID, err := primitive.ObjectIDFromHex(*variantID)
-		if err != nil {
-			return apperror.ErrInvalidID
-		}
-		pullFilter = bson.M{
-			"product_id": productObjID,
-			"variant_id": variantObjID,
-		}
-	} else {
-		pullFilter = bson.M{
-			"product_id": productObjID,
-			"variant_id": bson.M{"$exists": false},
-		}
+	pullFilter := bson.M{
+		"_id": itemObjID,
 	}
 
 	update := bson.M{

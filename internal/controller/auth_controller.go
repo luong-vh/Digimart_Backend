@@ -101,26 +101,6 @@ func (c *AuthController) VerifyEmailCode(ctx *gin.Context) {
 	data := gin.H{"verification_token": verificationToken}
 	dto.SendSuccess(ctx, http.StatusOK, "Email verified successfully. You can now complete your registration.", data)
 }
-func (c *AuthController) CompleteSellerRegistration(ctx *gin.Context) {
-	var req dto.CompleteSellerRegistrationRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		dto.SendError(ctx, http.StatusBadRequest, apperror.Message(apperror.ErrBadRequest), apperror.ErrBadRequest.Code)
-		return
-	}
-
-	user, accessToken, refreshToken, err := c.authService.CompleteSellerRegistration(req)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	data := dto.AuthResponse{
-		User:         dto.FromUser(user),
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}
-	dto.SendSuccess(ctx, http.StatusCreated, "Registration completed successfully. You are now logged in.", data)
-}
 
 func (c *AuthController) CompleteBuyerRegistration(ctx *gin.Context) {
 	var req dto.CompleteBuyerRegistrationRequest
@@ -250,27 +230,6 @@ func (c *AuthController) GoogleCallback(ctx *gin.Context) {
 		log.Printf("GoogleCallback: Unknown status, redirecting to: %s", redirectURL)
 		redirectWithHash(ctx, redirectURL)
 	}
-}
-
-func (c *AuthController) CompleteGoogleSetup(ctx *gin.Context) {
-	var req dto.CompleteGoogleSetupRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		dto.SendError(ctx, http.StatusBadRequest, apperror.Message(apperror.ErrBadRequest), apperror.ErrBadRequest.Code)
-		return
-	}
-
-	user, accessToken, refreshToken, err := c.authService.CompleteGoogleSetup(req.SetupToken, req.Username)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	data := dto.AuthResponse{
-		User:         dto.FromUser(user),
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	}
-	dto.SendSuccess(ctx, http.StatusOK, "Setup complete. You are now logged in.", data)
 }
 
 // --- Forgot Password Flow ---

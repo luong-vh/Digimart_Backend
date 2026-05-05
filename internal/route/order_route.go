@@ -21,26 +21,19 @@ func RegisterOrderRoutes(r *gin.RouterGroup, orderController *controller.OrderCo
 			customer.POST("/:id/return", orderController.RequestReturn)
 		}
 
-		// Seller endpoints
-		seller := orders.Group("/seller")
-		seller.Use(middleware.RequireAuth(), middleware.RequireSeller())
-		{
-			seller.GET("", orderController.GetSellerOrders)
-			seller.GET("/stats", orderController.GetSellerOrderStats)
-			seller.POST("/:id/confirm", orderController.ConfirmOrder)
-			seller.POST("/:id/pack", orderController.PackOrder)
-			seller.POST("/:id/ship", orderController.ShipOrder)
-			seller.PUT("/:id/tracking", orderController.UpdateTracking)
-			seller.POST("/:id/reject", orderController.RejectOrder)
-			seller.POST("/:id/refund", orderController.ProcessRefund)
-		}
-
 		// Admin endpoints
 		admin := orders.Group("/admin")
 		admin.Use(middleware.RequireAuth(), middleware.RequireAdmin())
 		{
+			admin.GET("/stats", orderController.GetSellerOrderStats)
+			admin.POST("/:id/confirm", orderController.ConfirmOrder)
+			admin.POST("/:id/pack", orderController.PackOrder)
+			admin.POST("/:id/ship", orderController.ShipOrder)
+			admin.PUT("/:id/tracking", orderController.UpdateTracking)
+			admin.POST("/:id/reject", orderController.RejectOrder)
+			admin.POST("/:id/refund", orderController.ProcessRefund)
 			admin.GET("", orderController.GetAllOrders)
-			admin.GET("/stats", orderController.GetOrderStats)
+			
 			admin.PUT("/:id/status", orderController.AdminUpdateStatus)
 			admin.POST("/:id/deliver", orderController.AdminMarkAsDelivered)
 			admin.POST("/:id/mark-paid", orderController.MarkAsPaid)

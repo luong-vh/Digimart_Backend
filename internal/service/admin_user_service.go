@@ -19,10 +19,7 @@ type AdminUserService interface {
 	SoftDeleteUser(userID string) error
 	RestoreUser(userID string) error
 
-	ApproveSeller(userID string) error
-	RejectSeller(userID string) error
 	GetBuyers(query *dto.GetBuyersQuery) (*dto.PaginatedUsersResponse, error)
-	GetSellers(query *dto.GetSellersQuery) (*dto.PaginatedUsersResponse, error)
 }
 
 type adminUserService struct {
@@ -33,51 +30,6 @@ func NewAdminUserService(userRepo repo.UserRepo) AdminUserService {
 	return &adminUserService{
 		userRepo: userRepo,
 	}
-}
-
-func (s *adminUserService) ApproveSeller(userID string) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Get user
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return apperror.ErrUserNotFound
-		}
-		return err
-	}
-
-	// Cannot ban admin
-	if user.Role != model.SellerRole {
-		return apperror.NewError(nil, apperror.ErrForbidden.Code, "This user is not a seller")
-	}
-
-	user.RoleContent.Seller.SellerStatus = model.SellerActive
-
-	_, err = s.userRepo.Update(ctx, user)
-	return err
-}
-
-func (s *adminUserService) RejectSeller(userID string) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return apperror.ErrUserNotFound
-		}
-		return err
-	}
-	if user.Role != model.SellerRole {
-		return apperror.NewError(nil, apperror.ErrForbidden.Code, "This user is not a seller")
-	}
-
-	user.RoleContent.Seller.SellerStatus = model.SellerRejected
-
-	_, err = s.userRepo.Update(ctx, user)
-	return err
 }
 func (s *adminUserService) BanUser(userID string, req *dto.BanUserRequest) error {
 	ctx, cancel := util.NewDefaultDBContext()
@@ -245,75 +197,6 @@ func (s *adminUserService) GetBuyers(query *dto.GetBuyersQuery) (*dto.PaginatedU
 	}, nil
 }
 
-// ============ GET SELLERS ============
-func (s *adminUserService) GetSellers(query *dto.GetSellersQuery) (*dto.PaginatedUsersResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Base filter
-	filter := repo.Filter{
-		"deleted_at": bson.M{"$exists": false},
-		"is_banned":  false,
-		"role":       model.SellerRole,
-	}
-
-	// ============ SEARCH FILTERS ============
-
-	// Keyword search (fullname OR email)
-	if query.Keyword != "" {
-		filter["$or"] = []bson.M{
-			{"full_name": bson.M{"$regex": primitive.Regex{Pattern: query.Keyword, Options: "i"}}},
-			{"email": bson.M{"$regex": primitive.Regex{Pattern: query.Keyword, Options: "i"}}},
-		}
-	}
-
-	// Specific field search
-	if query.Email != "" {
-		filter["email"] = bson.M{"$regex": primitive.Regex{Pattern: query.Email, Options: "i"}}
-	}
-
-	if query.FullName != "" {
-		filter["full_name"] = bson.M{"$regex": primitive.Regex{Pattern: query.FullName, Options: "i"}}
-	}
-
-	if query.PhoneNumber != "" {
-		filter["role_content.seller.phone_number"] = bson.M{"$regex": primitive.Regex{Pattern: query.PhoneNumber, Options: "i"}}
-	}
-
-	// ============ FILTER BY FIELDS ============
-
-	// Seller Status
-	if query.SellerStatus != "" {
-		filter["role_content.seller.seller_status"] = query.SellerStatus
-	}
-
-	// Category
-	if query.CategoryID != nil {
-		filter["role_content.seller.categories._id"] = *query.CategoryID
-	}
-
-	// ============ PAGINATION ============
-	page, pageSize := s.normalizePagination(query.Page, query.PageSize)
-
-	findOptions := &repo.FindOptions{
-		Skip:  int64((page - 1) * pageSize),
-		Limit: int64(pageSize),
-	}
-
-	users, total, err := s.userRepo.Find(ctx, filter, findOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	return &dto.PaginatedUsersResponse{
-		Users: dto.FromUsers(users),
-		Pagination: dto.Pagination{
-			Page:     page,
-			PageSize: pageSize,
-			Total:    total,
-		},
-	}, nil
-}
 func (s *adminUserService) normalizePagination(page, pageSize int) (int, int) {
 	if page < 1 {
 		page = 1

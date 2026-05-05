@@ -30,51 +30,13 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 
 	userID := authUser.(auth.AuthUser).ID
 
-	cart, err := c.service.GetCart(userID)
+	cart, err := c.service.GetCart(ctx, userID)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
 	}
 
 	dto.SendSuccess(ctx, http.StatusOK, "Cart retrieved successfully", cart)
-}
-
-// GetCartWithRefresh retrieves the cart with refreshed snapshots (latest product info)
-func (c *CartController) GetCartWithRefresh(ctx *gin.Context) {
-	authUser, exists := ctx.Get("authUser")
-	if !exists {
-		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrForbidden.Message, apperror.ErrForbidden.Code)
-		return
-	}
-
-	userID := authUser.(auth.AuthUser).ID
-
-	cart, err := c.service.GetCartWithRefresh(userID)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Cart retrieved successfully", cart)
-}
-
-// ClearCart removes all items from the cart
-func (c *CartController) ClearCart(ctx *gin.Context) {
-	authUser, exists := ctx.Get("authUser")
-	if !exists {
-		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrForbidden.Message, apperror.ErrForbidden.Code)
-		return
-	}
-
-	userID := authUser.(auth.AuthUser).ID
-
-	err := c.service.ClearCart(userID)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Cart cleared successfully", nil)
 }
 
 // ==================== ITEM OPERATIONS ====================
@@ -95,7 +57,7 @@ func (c *CartController) AddItem(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.service.AddItem(userID, &req)
+	cart, err := c.service.AddItem(ctx, userID, req)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
@@ -120,7 +82,7 @@ func (c *CartController) UpdateItemQuantity(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.service.UpdateItemQuantity(userID, &req)
+	cart, err := c.service.UpdateItemQuantity(ctx, userID, req)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
@@ -138,15 +100,9 @@ func (c *CartController) RemoveItem(ctx *gin.Context) {
 	}
 
 	userID := authUser.(auth.AuthUser).ID
-	productID := ctx.Param("productId")
-	variantID := ctx.Query("variant_id")
+	itemID := ctx.Param("itemId")
 
-	var variantIDPtr *string
-	if variantID != "" {
-		variantIDPtr = &variantID
-	}
-
-	cart, err := c.service.RemoveItem(userID, productID, variantIDPtr)
+	cart, err := c.service.RemoveItem(ctx, userID, itemID)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
@@ -173,7 +129,7 @@ func (c *CartController) AddItems(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.service.AddItems(userID, &req)
+	cart, err := c.service.AddItems(ctx, userID, req)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
@@ -198,7 +154,7 @@ func (c *CartController) RemoveItems(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.service.RemoveItems(userID, &req)
+	cart, err := c.service.RemoveItems(ctx, userID, req)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
@@ -219,24 +175,11 @@ func (c *CartController) ValidateCart(ctx *gin.Context) {
 
 	userID := authUser.(auth.AuthUser).ID
 
-	validation, err := c.service.ValidateCart(userID)
+	validation, err := c.service.ValidateCart(ctx, userID)
 	if err != nil {
 		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
 		return
 	}
 
 	dto.SendSuccess(ctx, http.StatusOK, "Cart validated successfully", validation)
-}
-
-// ==================== ADMIN ENDPOINTS ====================
-
-// GetCartStats retrieves cart statistics (Admin only)
-func (c *CartController) GetCartStats(ctx *gin.Context) {
-	stats, err := c.service.GetCartStats()
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Cart stats retrieved successfully", stats)
 }

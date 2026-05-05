@@ -11,7 +11,6 @@ import (
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
 	"github.com/luong-vh/Digimart_Backend/internal/auth"
 	"github.com/luong-vh/Digimart_Backend/internal/config"
-	"github.com/luong-vh/Digimart_Backend/internal/dto"
 	"github.com/luong-vh/Digimart_Backend/internal/model"
 	"github.com/luong-vh/Digimart_Backend/internal/platform/email"
 	"github.com/luong-vh/Digimart_Backend/internal/repo"
@@ -41,7 +40,7 @@ type AuthService interface {
 	SendEmailVerification(email string) error
 	VerifyEmailCode(email, otp string) (string, error) // Returns verification_token
 	CompleteBuyerRegistration(verificationToken, password string, name string) (*model.User, string, string, error)
-	CompleteSellerRegistration(req dto.CompleteSellerRegistrationRequest) (*model.User, string, string, error)
+
 	ResendOTP(email string) error
 	Login(identifier, password string) (*model.User, string, string, error)
 	RefreshToken(refreshToken string) (string, string, error)
@@ -54,7 +53,6 @@ type AuthService interface {
 
 	// Google OAuth
 	ProcessGoogleCallback(code string) (*GoogleAuthResult, error)
-	CompleteGoogleSetup(setupToken, username string) (*model.User, string, string, error)
 }
 
 type authService struct {
@@ -164,84 +162,6 @@ func (s *authService) VerifyEmailCode(email, otp string) (string, error) {
 	}
 
 	return verificationToken, nil
-}
-
-func (s *authService) CompleteSellerRegistration(req dto.CompleteSellerRegistrationRequest) (*model.User, string, string, error) {
-	// Parse verification token
-	claims, err := auth.ParseVerificationToken(req.VerificationToken)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Verify the nonce matches (prevent replay)
-	verification, err := s.emailVerificationRepo.GetByEmail(ctx, claims.Email)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, "", "", apperror.ErrInvalidToken
-		}
-		return nil, "", "", err
-	}
-
-	if !verification.IsVerified {
-		return nil, "", "", apperror.ErrEmailNotVerified
-	}
-
-	if verification.Nonce != claims.Nonce {
-		return nil, "", "", apperror.ErrInvalidToken
-	}
-
-	// Double-check email not taken (race condition prevention)
-	if _, err := s.userRepo.GetByEmail(ctx, claims.Email); !errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, "", "", apperror.ErrEmailExists
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	// Create user (already verified)
-	user := &model.User{
-		Email:      claims.Email,
-		FullName:   req.Name,
-		Password:   string(hashedPassword),
-		Role:       model.SellerRole,
-		IsVerified: true,  // Always true since we verified email first
-		IsBanned:   false, // Initialize ban status
-		CreatedAt:  time.Now(),
-		RoleContent: model.RoleContent{
-			Seller: &model.SellerRoleContent{
-				Categories:    req.Categories,
-				PickupAddress: req.PickupAddress,
-				PhoneNumber:   req.PhoneNumber,
-				IdentityCard:  req.IdentityCard,
-				IDFrontImage:  req.IDFrontImage,
-				IDBackImage:   req.IDBackImage,
-				SelfieWithID:  req.SelfieWithIDImage,
-				SellerStatus:  model.SellerPending,
-			},
-		},
-	}
-
-	createdUser, err := s.userRepo.Create(ctx, user)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	// Delete verification record (cleanup)
-	_ = s.emailVerificationRepo.Delete(ctx, claims.Email)
-
-	// Generate access & refresh tokens
-	accessToken, refreshToken, err := auth.GenerateToken(createdUser.ID.Hex(), string(createdUser.Role))
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	return createdUser, accessToken, refreshToken, nil
 }
 
 // CompleteRegistration creates the user account after email verification
@@ -674,52 +594,6 @@ func (s *authService) ProcessGoogleCallback(code string) (*GoogleAuthResult, err
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
-}
-
-func (s *authService) CompleteGoogleSetup(setupToken, username string) (*model.User, string, string, error) {
-	claims, err := auth.ParseSetupToken(setupToken)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	if _, err := s.userRepo.GetByUsername(ctx, username); !errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, "", "", apperror.ErrUsernameExists
-	}
-
-	if _, err := s.userRepo.GetByEmail(ctx, claims.Email); !errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, "", "", apperror.ErrEmailExists
-	}
-
-	newUser := &model.User{
-		Email:      claims.Email,
-		Role:       model.BuyerRole,
-		IsVerified: true,
-		IsBanned:   false, // Initialize ban status
-		CreatedAt:  time.Now(),
-		RoleContent: model.RoleContent{
-			Seller: &model.SellerRoleContent{
-				Avatar: &model.Image{URL: claims.Picture},
-			},
-		},
-	}
-
-	createdUser, err := s.userRepo.Create(ctx, newUser)
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	// Invalidate username cache
-	s.invalidateUsernameCache(username)
-
-	accessToken, refreshToken, err := auth.GenerateToken(createdUser.ID.Hex(), string(createdUser.Role))
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	return createdUser, accessToken, refreshToken, nil
 }
 
 // --- Helpers ---

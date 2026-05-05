@@ -7,7 +7,6 @@ import (
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
 	"github.com/luong-vh/Digimart_Backend/internal/auth"
 	"github.com/luong-vh/Digimart_Backend/internal/dto"
-	"github.com/luong-vh/Digimart_Backend/internal/model"
 	"github.com/luong-vh/Digimart_Backend/internal/service"
 )
 
@@ -52,33 +51,18 @@ func (c *UserController) UpdateProfile(ctx *gin.Context) {
 		return
 	}
 
-	if user.Role == model.SellerRole {
-		var req dto.SellerProfileUpdateRequest
-		if err := ctx.ShouldBind(&req); err != nil {
-			dto.SendError(ctx, http.StatusBadRequest, "Invalid request payload", apperror.ErrBadRequest.Code)
-			return
-		}
-		updatedUser, err := c.service.UpdateSellerProfile(user.ID, &req)
-		if err != nil {
-			dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-			return
-		}
-
-		dto.SendSuccess(ctx, http.StatusOK, "Profile updated successfully", updatedUser)
-	} else {
-		var req dto.BuyerProfileUpdateRequest
-		if err := ctx.ShouldBind(&req); err != nil {
-			dto.SendError(ctx, http.StatusBadRequest, "Invalid request payload", apperror.ErrBadRequest.Code)
-			return
-		}
-		updatedUser, err := c.service.UpdateBuyerProfile(user.ID, &req)
-		if err != nil {
-			dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-			return
-		}
-
-		dto.SendSuccess(ctx, http.StatusOK, "Profile updated successfully", updatedUser)
+	var req dto.BuyerProfileUpdateRequest
+	if err := ctx.ShouldBind(&req); err != nil {
+		dto.SendError(ctx, http.StatusBadRequest, "Invalid request payload", apperror.ErrBadRequest.Code)
+		return
 	}
+	updatedUser, err := c.service.UpdateBuyerProfile(user.ID, &req)
+	if err != nil {
+		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
+		return
+	}
+
+	dto.SendSuccess(ctx, http.StatusOK, "Profile updated successfully", updatedUser)
 
 }
 

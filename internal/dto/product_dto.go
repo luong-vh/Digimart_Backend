@@ -7,79 +7,87 @@ import (
 
 // Request DTOs
 type CreateProductRequest struct {
-	CategoryID    string                 `json:"category_id" validate:"required"`
-	Name          string                 `json:"name" validate:"required,min=1,max=200"`
-	Description   string                 `json:"description" validate:"required"`
-	SKU           string                 `json:"sku,omitempty"`
-	Thumbnail     model.Image            `json:"thumbnail" validate:"required"`
-	Images        []model.Image          `json:"images"`
-	Videos        []model.Video          `json:"videos,omitempty"`
-	Price         float64                `json:"price" validate:"required,min=0"`
-	SalePrice     *float64               `json:"sale_price,omitempty"`
-	StockQuantity int                    `json:"stock_quantity" validate:"required,min=0"`
-	HasVariants   bool                   `json:"has_variants"`
-	Attributes    []model.AttributeSpec  `json:"attributes,omitempty"`
-	Variants      []model.ProductVariant `json:"variants,omitempty"`
+	CategoryID      string                 `json:"category_id" validate:"required"`
+	Name            string                 `json:"name" validate:"required,min=1,max=200"`
+	Description     string                 `json:"description" validate:"required"`
+	Brand           string                 `json:"brand,omitempty"`
+	Thumbnail       model.Image            `json:"thumbnail" validate:"required"`
+	Images          []model.Image          `json:"images"`
+	Videos          []model.Video          `json:"videos,omitempty"`
+	BasePrice       float64                `json:"base_price" validate:"required,min=0"`
+	DiscountPercent float64                `json:"discount_percent" validate:"min=0,max=100"`
+	IsHasVariant    bool                   `json:"is_has_variant"`
+	StockQuantity   *int                   `json:"stock_quantity,omitempty"`
+	Variants        []model.ProductVariant `json:"variants,omitempty"`
 }
 
 type UpdateProductRequest struct {
-	CategoryID    *string               `json:"category_id,omitempty"`
-	Name          *string               `json:"name,omitempty" validate:"omitempty,min=1,max=200"`
-	Description   *string               `json:"description,omitempty"`
-	SKU           *string               `json:"sku,omitempty"`
-	Thumbnail     *model.Image          `json:"thumbnail,omitempty"`
-	Images        []model.Image         `json:"images,omitempty"`
-	Videos        []model.Video         `json:"videos,omitempty"`
-	Price         *float64              `json:"price,omitempty" validate:"omitempty,min=0"`
-	SalePrice     *float64              `json:"sale_price,omitempty"`
-	StockQuantity *int                  `json:"stock_quantity,omitempty" validate:"omitempty,min=0"`
-	Attributes    []model.AttributeSpec `json:"attributes,omitempty"`
+	CategoryID      *string              `json:"category_id,omitempty"`
+	Name            *string              `json:"name,omitempty" validate:"omitempty,min=1,max=200"`
+	Description     *string              `json:"description,omitempty"`
+	Brand           *string              `json:"brand,omitempty"`
+	Thumbnail       *model.Image         `json:"thumbnail,omitempty"`
+	BasePrice       *float64             `json:"base_price,omitempty" validate:"omitempty,min=0"`
+	DiscountPercent *float64             `json:"discount_percent,omitempty" validate:"omitempty,min=0,max=100"`
+	StockQuantity   *int                 `json:"stock_quantity,omitempty"`
+	Status          *model.ProductStatus `json:"status,omitempty" validate:"omitempty,oneof=draft active "`
 }
 
-type AddVariantRequest struct {
-	SKU           string            `json:"sku,omitempty"`
-	Attributes    []model.Attribute `json:"attributes" validate:"required"`
-	Price         float64           `json:"price" validate:"required,min=0"`
-	SalePrice     *float64          `json:"sale_price,omitempty"`
-	StockQuantity int               `json:"stock_quantity" validate:"required,min=0"`
-	Image         *model.Image      `json:"image,omitempty"`
+// Image operations
+type AddImagesRequest struct {
+	Images []model.Image `json:"images" validate:"required,dive"`
+}
+
+type DeleteImageRequest struct {
+	ImageID string `json:"image_id" validate:"required"`
+}
+
+// Video operations
+type AddVideosRequest struct {
+	Videos []model.Video `json:"videos" validate:"required,dive"`
+}
+
+type DeleteVideoRequest struct {
+	VideoID string `json:"video_id" validate:"required"`
+}
+
+// Variant CRUD
+type CreateVariantRequest struct {
+	Title           string  `json:"title" validate:"required"`
+	Description     string  `json:"description,omitempty"`
+	PriceAdjustment float64 `json:"price_adjustment"`
+	StockQuantity   int     `json:"stock_quantity" validate:"required,min=0"`
 }
 
 type UpdateVariantRequest struct {
-	SKU           *string              `json:"sku,omitempty"`
-	Attributes    []model.Attribute    `json:"attributes,omitempty"`
-	Price         *float64             `json:"price,omitempty" validate:"omitempty,min=0"`
-	SalePrice     *float64             `json:"sale_price,omitempty"`
-	StockQuantity *int                 `json:"stock_quantity,omitempty" validate:"omitempty,min=0"`
-	Image         *model.Image         `json:"image,omitempty"`
-	Status        *model.ProductStatus `json:"status,omitempty"`
+	Title           *string  `json:"title,omitempty"`
+	Description     *string  `json:"description,omitempty"`
+	PriceAdjustment *float64 `json:"price_adjustment,omitempty"`
+	StockQuantity   *int     `json:"stock_quantity,omitempty" validate:"omitempty,min=0"`
 }
+
 
 // Response DTOs
 type ProductResponse struct {
-	ID            string                 `json:"id"`
-	CategoryID    string                 `json:"category_id"`
-	SellerID      string                 `json:"seller_id"`
-	Name          string                 `json:"name"`
-	Slug          string                 `json:"slug"`
-	Description   string                 `json:"description"`
-	SKU           string                 `json:"sku,omitempty"`
-	Thumbnail     model.Image            `json:"thumbnail"`
-	Images        []model.Image          `json:"images"`
-	Videos        []model.Video          `json:"videos,omitempty"`
-	Price         float64                `json:"price"`
-	SalePrice     *float64               `json:"sale_price,omitempty"`
-	StockQuantity int                    `json:"stock_quantity"`
-	SoldCount     int                    `json:"sold_count"`
-	Rating        float64                `json:"rating"`
-	RatingCount   int                    `json:"rating_count"`
-	ViewCount     int                    `json:"view_count"`
-	HasVariants   bool                   `json:"has_variants"`
-	Attributes    []model.AttributeSpec  `json:"attributes,omitempty"`
-	Variants      []model.ProductVariant `json:"variants,omitempty"`
-	Status        model.ProductStatus    `json:"status"`
-	CreatedAt     string                 `json:"created_at"`
-	UpdatedAt     string                 `json:"updated_at"`
+	ID              string                 `json:"id"`
+	CategoryID      string                 `json:"category_id"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	Brand           string                 `json:"brand,omitempty"`
+	Thumbnail       model.Image            `json:"thumbnail"`
+	Images          []model.Image          `json:"images"`
+	Videos          []model.Video          `json:"videos,omitempty"`
+	BasePrice       float64                `json:"base_price"`
+	DiscountPercent float64                `json:"discount_percent"`
+	IsHasVariant    bool                   `json:"is_has_variant"`
+	StockQuantity   *int                   `json:"stock_quantity,omitempty"`
+	SoldCount       int                    `json:"sold_count"`
+	Rating          float64                `json:"rating"`
+	RatingCount     int                    `json:"rating_count"`
+	Variants        []model.ProductVariant `json:"variants,omitempty"`
+	Status          model.ProductStatus    `json:"status"`
+	CreatedAt       string                 `json:"created_at"`
+	UpdatedAt       string                 `json:"updated_at"`
 }
 
 type ProductStatsResponse struct {
@@ -89,6 +97,15 @@ type ProductStatsResponse struct {
 	NewThisWeek int64 `json:"new_this_week"`
 }
 
+type VariantResponse struct {
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	Description     string  `json:"description,omitempty"`
+	PriceAdjustment float64 `json:"price_adjustment"`
+	FinalPrice      float64 `json:"final_price"`
+	StockQuantity   int     `json:"stock_quantity"`
+}
+
 // Converter functions
 func FromProduct(product *model.Product) *ProductResponse {
 	if product == nil {
@@ -96,29 +113,25 @@ func FromProduct(product *model.Product) *ProductResponse {
 	}
 
 	return &ProductResponse{
-		ID:            product.ID.Hex(),
-		CategoryID:    product.CategoryID.Hex(),
-		SellerID:      product.SellerID.Hex(),
-		Name:          product.Name,
-		Slug:          product.Slug,
-		Description:   product.Description,
-		SKU:           product.SKU,
-		Thumbnail:     product.Thumbnail,
-		Images:        product.Images,
-		Videos:        product.Videos,
-		Price:         product.Price,
-		SalePrice:     product.SalePrice,
-		StockQuantity: product.StockQuantity,
-		SoldCount:     product.SoldCount,
-		Rating:        product.Rating,
-		RatingCount:   product.RatingCount,
-		ViewCount:     product.ViewCount,
-		HasVariants:   product.HasVariants,
-		Attributes:    product.Attributes,
-		Variants:      product.Variants,
-		Status:        product.Status,
-		CreatedAt:     product.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:     product.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:              product.ID.Hex(),
+		CategoryID:      product.CategoryID.Hex(),
+		Name:            product.Name,
+		Description:     product.Description,
+		Brand:           product.Brand,
+		Thumbnail:       product.Thumbnail,
+		Images:          product.Images,
+		Videos:          product.Videos,
+		BasePrice:       product.BasePrice,
+		DiscountPercent: product.DiscountPercent,
+		IsHasVariant:    product.IsHasVariant,
+		StockQuantity:   product.StockQuantity,
+		SoldCount:       product.SoldCount,
+		Rating:          product.Rating,
+		RatingCount:     product.RatingCount,
+		Variants:        product.Variants,
+		Status:          product.Status,
+		CreatedAt:       product.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:       product.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
@@ -130,12 +143,16 @@ func FromProducts(products []*model.Product) []*ProductResponse {
 	return result
 }
 
-// dto/product_dto.go (thêm vào)
-
-type UpdateProductStatusRequest struct {
-	Status model.ProductStatus `json:"status" validate:"required"`
-}
-
-type UpdateStockRequest struct {
-	Quantity int `json:"quantity" validate:"required,min=0"`
+func FromVariant(variant *model.ProductVariant) *VariantResponse {
+	if variant == nil {
+		return nil
+	}
+	return &VariantResponse{
+		ID:              variant.ID.Hex(),
+		Title:           variant.Title,
+		Description:     variant.Description,
+		PriceAdjustment: variant.PriceAdjustment,
+		FinalPrice:      variant.FinalPrice,
+		StockQuantity:   variant.StockQuantity,
+	}
 }

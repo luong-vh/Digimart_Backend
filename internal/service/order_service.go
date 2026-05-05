@@ -684,7 +684,7 @@ func (s *orderService) validateAndBuildOrderItems(ctx context.Context, items []d
 	var sellerID primitive.ObjectID
 	var subtotal float64
 
-	for i, item := range items {
+	for _, item := range items {
 		productObjID, err := primitive.ObjectIDFromHex(item.ProductID)
 		if err != nil {
 			return nil, primitive.NilObjectID, 0, apperror.ErrInvalidID
@@ -702,13 +702,6 @@ func (s *orderService) validateAndBuildOrderItems(ctx context.Context, items []d
 			return nil, primitive.NilObjectID, 0, apperror.ErrProductNotAvailable
 		}
 
-		// Set seller ID from first product (one order = one seller)
-		if i == 0 {
-			sellerID = product.SellerID
-		} else if sellerID != product.SellerID {
-			return nil, primitive.NilObjectID, 0, apperror.ErrMultipleSellersNotAllowed
-		}
-
 		orderItem, err := s.buildOrderItem(product, productObjID, item)
 		if err != nil {
 			return nil, primitive.NilObjectID, 0, err
@@ -722,182 +715,26 @@ func (s *orderService) validateAndBuildOrderItems(ctx context.Context, items []d
 }
 
 func (s *orderService) buildOrderItem(product *model.Product, productObjID primitive.ObjectID, item dto.OrderItemRequest) (*model.OrderItem, error) {
-	var price float64
-	var stock int
-	var sku string
-	var image model.Image
-
-	if item.VariantID != "" {
-		variant, found := s.findVariant(product.Variants, item.VariantID)
-		if !found {
-			return nil, apperror.ErrVariantNotFound
-		}
-
-		price = variant.GetEffectivePrice()
-		stock = variant.StockQuantity
-		sku = variant.SKU
-
-		if variant.Image != nil {
-			image = *variant.Image
-		}
-	} else {
-		if len(product.Variants) > 0 {
-			return nil, apperror.ErrVariantRequired
-		}
-
-		price = product.GetEffectivePrice()
-		stock = product.StockQuantity
-		sku = product.SKU
-
-		if len(product.Images) > 0 {
-			image = product.Images[0]
-		}
-	}
-
-	if stock < item.Quantity {
-		return nil, apperror.ErrInsufficientStock
-	}
-
-	itemSubtotal := price * float64(item.Quantity)
-
-	return &model.OrderItem{
-		ProductID:   productObjID,
-		VariantID:   item.VariantID,
-		ProductName: product.Name,
-		SKU:         sku,
-		Image:       image,
-		Price:       price,
-		Quantity:    item.Quantity,
-		Subtotal:    itemSubtotal,
-	}, nil
+	return nil, nil
 }
 
 func (s *orderService) validateAndBuildShippingAddress(ctx context.Context, req *dto.ShippingAddressRequest) (*model.ShippingAddress, error) {
-	if req == nil {
-		return nil, apperror.ErrBadRequest
-	}
 
-	if req.RecipientName == "" || req.PhoneNumber == "" {
-		return nil, apperror.ErrBadRequest
-	}
-
-	provinceObjID, err := primitive.ObjectIDFromHex(req.ProvinceID)
-	if err != nil {
-		return nil, apperror.ErrInvalidID
-	}
-
-	province, err := s.provinceRepo.GetByID(ctx, provinceObjID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProvinceNotFound
-		}
-		return nil, err
-	}
-
-	ward, err := s.provinceRepo.GetWardByID(ctx, provinceObjID, req.WardID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrWardNotFound
-		}
-		return nil, err
-	}
-
-	address := &model.ShippingAddress{
-		RecipientName: req.RecipientName,
-		PhoneNumber:   req.PhoneNumber,
-		ProvinceID:    provinceObjID,
-		ProvinceName:  province.Name,
-		WardID:        req.WardID,
-		WardName:      ward.Name,
-		Detail:        req.Detail,
-	}
-	address.BuildFullAddress()
-
-	return address, nil
+	return nil, nil
 }
 
 func (s *orderService) decreaseStock(ctx context.Context, items []dto.OrderItemRequest) error {
-	for i, item := range items {
-		product, err := s.productRepo.GetByID(ctx, item.ProductID)
-		if err != nil {
-			s.rollbackDecreasedStock(ctx, items[:i])
-			return err
-		}
 
-		var newStock int
-		if item.VariantID != "" {
-			variant, found := s.findVariant(product.Variants, item.VariantID)
-			if !found {
-				s.rollbackDecreasedStock(ctx, items[:i])
-				return apperror.ErrVariantNotFound
-			}
-			newStock = variant.StockQuantity - item.Quantity
-			if newStock < 0 {
-				s.rollbackDecreasedStock(ctx, items[:i])
-				return apperror.ErrInsufficientStock
-			}
-			if err := s.productRepo.UpdateVariantStock(ctx, item.ProductID, item.VariantID, newStock); err != nil {
-				s.rollbackDecreasedStock(ctx, items[:i])
-				return err
-			}
-		} else {
-			newStock = product.StockQuantity - item.Quantity
-			if newStock < 0 {
-				s.rollbackDecreasedStock(ctx, items[:i])
-				return apperror.ErrInsufficientStock
-			}
-			if err := s.productRepo.UpdateStock(ctx, item.ProductID, newStock); err != nil {
-				s.rollbackDecreasedStock(ctx, items[:i])
-				return err
-			}
-		}
-	}
 	return nil
 }
 
 func (s *orderService) rollbackDecreasedStock(ctx context.Context, items []dto.OrderItemRequest) {
-	for _, item := range items {
-		product, err := s.productRepo.GetByID(ctx, item.ProductID)
-		if err != nil {
-			continue
-		}
-
-		if item.VariantID != "" {
-			variant, found := s.findVariant(product.Variants, item.VariantID)
-			if found {
-				_ = s.productRepo.UpdateVariantStock(ctx, item.ProductID, item.VariantID, variant.StockQuantity+item.Quantity)
-			}
-		} else {
-			_ = s.productRepo.UpdateStock(ctx, item.ProductID, product.StockQuantity+item.Quantity)
-		}
-	}
+	return
 }
 
 func (s *orderService) restoreStock(ctx context.Context, items []model.OrderItem) error {
-	var lastErr error
-	for _, item := range items {
-		productID := item.ProductID.Hex()
 
-		product, err := s.productRepo.GetByID(ctx, productID)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		if item.VariantID != "" {
-			variant, found := s.findVariant(product.Variants, item.VariantID)
-			if found {
-				if err := s.productRepo.UpdateVariantStock(ctx, productID, item.VariantID, variant.StockQuantity+item.Quantity); err != nil {
-					lastErr = err
-				}
-			}
-		} else {
-			if err := s.productRepo.UpdateStock(ctx, productID, product.StockQuantity+item.Quantity); err != nil {
-				lastErr = err
-			}
-		}
-	}
-	return lastErr
+	return nil
 }
 
 func (s *orderService) findOrdersWithPagination(ctx context.Context, filter repo.Filter, query *dto.OrderFilterQuery) (*dto.PaginatedOrdersResponse, error) {

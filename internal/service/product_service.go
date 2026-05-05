@@ -1,8 +1,8 @@
 package service
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
@@ -11,40 +11,36 @@ import (
 	"github.com/luong-vh/Digimart_Backend/internal/platform/bus"
 	"github.com/luong-vh/Digimart_Backend/internal/platform/cloudinary"
 	"github.com/luong-vh/Digimart_Backend/internal/repo"
-	"github.com/luong-vh/Digimart_Backend/internal/util"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type ProductService interface {
-	// CRUD operations
-	CreateProduct(sellerID string, req *dto.CreateProductRequest) (*dto.ProductResponse, error)
-	UpdateProduct(productID string, sellerID string, req *dto.UpdateProductRequest) (*dto.ProductResponse, error)
-	DeleteProduct(productID string, sellerID string) error
-	GetProductByID(id string) (*dto.ProductResponse, error)
-	GetProductBySlug(slug string) (*dto.ProductResponse, error)
+	// ── CRUD ────────────────────────────────────────────
+	CreateProduct(ctx context.Context, req dto.CreateProductRequest) (*dto.ProductResponse, error)
+	UpdateProduct(ctx context.Context, productID string, req dto.UpdateProductRequest) (*dto.ProductResponse, error)
+	DeleteProduct(ctx context.Context, productID string) error     // hard delete (admin)
+	SoftDeleteProduct(ctx context.Context, productID string) error // soft delete (seller)
+	GetProductByID(ctx context.Context, productID string) (*dto.ProductResponse, error)
 
-	// Query operations
-	GetProductsBySellerID(sellerID string) ([]*dto.ProductResponse, error)
-	GetProductsByCategoryID(categoryID string) ([]*dto.ProductResponse, error)
-	FindProducts(filter repo.Filter, opts *repo.FindOptions) ([]*dto.ProductResponse, int64, error)
+	// ── List / Search ────────────────────────────────────
+	FindProducts(ctx context.Context, filter repo.Filter, opts *repo.FindOptions) ([]*dto.ProductResponse, int64, error)
 
-	// Variant operations
-	AddVariant(productID string, sellerID string, req *dto.AddVariantRequest) (*dto.ProductResponse, error)
-	UpdateVariant(productID string, variantID string, sellerID string, req *dto.UpdateVariantRequest) (*dto.ProductResponse, error)
-	DeleteVariant(productID string, variantID string, sellerID string) (*dto.ProductResponse, error)
+	// ── Media ────────────────────────────────────────────
+	AddProductImages(ctx context.Context, productID string, images []model.Image) error
+	AddProductVideos(ctx context.Context, productID string, videos []model.Video) error
 
-	// Status operations
-	UpdateProductStatus(productID string, sellerID string, status model.ProductStatus) (*dto.ProductResponse, error)
+	// ── Variant ──────────────────────────────────────────
+	CreateVariant(ctx context.Context, productID string, req dto.CreateVariantRequest) (*dto.VariantResponse, error)
+	UpdateVariant(ctx context.Context, productID string, variantID string, req dto.UpdateVariantRequest) (*dto.VariantResponse, error)
 
-	// Inventory operations
-	UpdateStock(productID string, sellerID string, quantity int) error
-	UpdateVariantStock(productID string, variantID string, sellerID string, quantity int) error
+	// ── Cart support ─────────────────────────────────────
+	CheckAvailability(ctx context.Context, productID string, variantID *string, qty int) (bool, int, error)
 
-	// Stats operations
-	IncrementViewCount(productID string) error
-	GetProductStats() (*dto.ProductStatsResponse, error)
+	// ── Order support ────────────────────────────────────
+	IncrementSoldCount(ctx context.Context, productID string, count int) error
+	UpdateRating(ctx context.Context, productID string, newRating float64) error
 }
 
 type productService struct {
@@ -63,89 +59,45 @@ func NewProductService(productRepo repo.ProductRepo, userRepo repo.UserRepo, eve
 	}
 }
 
-func (s *productService) CreateProduct(sellerID string, req *dto.CreateProductRequest) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Verify seller exists
-	_, err := s.userRepo.GetByID(ctx, sellerID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrUserNotFound
-		}
-		return nil, err
-	}
-
-	sellerObjID, err := primitive.ObjectIDFromHex(sellerID)
-	if err != nil {
-		return nil, apperror.ErrInvalidID
-	}
+func (s *productService) CreateProduct(ctx context.Context, req dto.CreateProductRequest) (*dto.ProductResponse, error) {
 
 	categoryObjID, err := primitive.ObjectIDFromHex(req.CategoryID)
 	if err != nil {
 		return nil, apperror.ErrInvalidID
 	}
 
-	// Generate slug from name
-	slug := util.GenerateSlug(req.Name)
-
-	// Check if slug already exists
-	existingProduct, _ := s.productRepo.GetBySlug(ctx, slug)
-	if existingProduct != nil {
-		slug = slug + "-" + primitive.NewObjectID().Hex()[:8]
-	}
-
 	product := &model.Product{
-		CategoryID:    categoryObjID,
-		SellerID:      sellerObjID,
-		Name:          req.Name,
-		Slug:          slug,
-		Description:   req.Description,
-		SKU:           req.SKU,
-		Thumbnail:     req.Thumbnail,
-		Images:        req.Images,
-		Videos:        req.Videos,
-		Price:         req.Price,
-		SalePrice:     req.SalePrice,
-		StockQuantity: req.StockQuantity,
-		HasVariants:   req.HasVariants,
-		Attributes:    req.Attributes,
-		Variants:      req.Variants,
-		Status:        model.ProductStatusDraft,
-		SoldCount:     0,
-		Rating:        0,
-		RatingCount:   0,
-		ViewCount:     0,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		CategoryID:      categoryObjID,
+		Name:            req.Name,
+		Description:     req.Description,
+		Brand:           req.Brand,
+		Thumbnail:       req.Thumbnail,
+		Images:          req.Images,
+		Videos:          req.Videos,
+		BasePrice:       req.BasePrice,
+		DiscountPercent: req.DiscountPercent,
+		IsHasVariant:    req.IsHasVariant,
+		StockQuantity:   req.StockQuantity,
+		Variants:        req.Variants,
+		Status:          model.ProductStatusDraft,
+		SoldCount:       0,
+		Rating:          0,
+		RatingCount:     0,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
-
-	// Generate IDs for variants
 	for i := range product.Variants {
-		product.Variants[i].ID = primitive.NewObjectID()
-		if product.Variants[i].Status == "" {
-			product.Variants[i].Status = model.ProductStatusActive
-		}
+		product.Variants[i].FinalPrice = (product.BasePrice + product.Variants[i].PriceAdjustment) * (1 - product.DiscountPercent/100)
 	}
-
 	createdProduct, err := s.productRepo.Create(ctx, product)
 	if err != nil {
 		return nil, err
 	}
 
-	//// Publish event
-	//s.eventBus.Publish(bus.ProductCreatedEventType{
-	//	ProductID: createdProduct.ID.Hex(),
-	//	SellerID:  sellerID,
-	//	Name:      createdProduct.Name,
-	//})
-
 	return dto.FromProduct(createdProduct), nil
 }
 
-func (s *productService) UpdateProduct(productID string, sellerID string, req *dto.UpdateProductRequest) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
+func (s *productService) UpdateProduct(ctx context.Context, productID string, req dto.UpdateProductRequest) (*dto.ProductResponse, error) {
 
 	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
@@ -155,32 +107,18 @@ func (s *productService) UpdateProduct(productID string, sellerID string, req *d
 		return nil, err
 	}
 
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return nil, apperror.ErrForbidden
-	}
-
 	var oldImagePublicIDs []string
 
 	// Update fields if provided
 	if req.Name != nil {
 		product.Name = *req.Name
-		// Optionally update slug
-		newSlug := util.GenerateSlug(*req.Name)
-		existingProduct, _ := s.productRepo.GetBySlug(ctx, newSlug)
-		if existingProduct == nil || existingProduct.ID == product.ID {
-			product.Slug = newSlug
-		}
 	}
-
 	if req.Description != nil {
 		product.Description = *req.Description
 	}
-
-	if req.SKU != nil {
-		product.SKU = *req.SKU
+	if req.Brand != nil {
+		product.Brand = *req.Brand
 	}
-
 	if req.CategoryID != nil {
 		categoryObjID, err := primitive.ObjectIDFromHex(*req.CategoryID)
 		if err != nil {
@@ -188,37 +126,26 @@ func (s *productService) UpdateProduct(productID string, sellerID string, req *d
 		}
 		product.CategoryID = categoryObjID
 	}
-
 	if req.Thumbnail != nil {
 		oldImagePublicIDs = append(oldImagePublicIDs, product.Thumbnail.PublicID)
 		product.Thumbnail = *req.Thumbnail
 	}
-
-	if req.Images != nil {
-		for _, img := range product.Images {
-			oldImagePublicIDs = append(oldImagePublicIDs, img.PublicID)
+	if req.BasePrice != nil {
+		product.BasePrice = *req.BasePrice
+	}
+	if req.DiscountPercent != nil {
+		product.DiscountPercent = *req.DiscountPercent
+	}
+	if req.BasePrice != nil || req.DiscountPercent != nil {
+		for i := range product.Variants {
+			product.Variants[i].FinalPrice = (product.BasePrice + product.Variants[i].PriceAdjustment) * (1 - product.DiscountPercent/100)
 		}
-		product.Images = req.Images
 	}
-
-	if req.Videos != nil {
-		product.Videos = req.Videos
-	}
-
-	if req.Price != nil {
-		product.Price = *req.Price
-	}
-
-	if req.SalePrice != nil {
-		product.SalePrice = req.SalePrice
-	}
-
 	if req.StockQuantity != nil {
-		product.StockQuantity = *req.StockQuantity
+		product.StockQuantity = req.StockQuantity
 	}
-
-	if req.Attributes != nil {
-		product.Attributes = req.Attributes
+	if req.Status != nil {
+		product.Status = *req.Status
 	}
 
 	product.UpdatedAt = time.Now()
@@ -235,19 +162,10 @@ func (s *productService) UpdateProduct(productID string, sellerID string, req *d
 		}
 	}
 
-	//// Publish event
-	//s.eventBus.Publish(bus.ProductUpdatedEventType{
-	//	ProductID: productID,
-	//	SellerID:  sellerID,
-	//})
-
 	return dto.FromProduct(updatedProduct), nil
 }
 
-func (s *productService) DeleteProduct(productID string, sellerID string) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
+func (s *productService) DeleteProduct(ctx context.Context, productID string) error {
 	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -256,12 +174,7 @@ func (s *productService) DeleteProduct(productID string, sellerID string) error 
 		return err
 	}
 
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return apperror.ErrForbidden
-	}
-
-	err = s.productRepo.SoftDelete(ctx, productID)
+	err = s.productRepo.Delete(ctx, productID)
 	if err != nil {
 		return err
 	}
@@ -274,20 +187,23 @@ func (s *productService) DeleteProduct(productID string, sellerID string) error 
 		}
 	}()
 
-	//// Publish event
-	//s.eventBus.Publish(bus.ProductDeletedEventType{
-	//	ProductID: productID,
-	//	SellerID:  sellerID,
-	//})
-
 	return nil
 }
 
-func (s *productService) GetProductByID(id string) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
+func (s *productService) SoftDeleteProduct(ctx context.Context, productID string) error {
+	_, err := s.productRepo.GetByID(ctx, productID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return apperror.ErrProductNotFound
+		}
+		return err
+	}
 
-	product, err := s.productRepo.GetByID(ctx, id)
+	return s.productRepo.SoftDelete(ctx, productID)
+}
+
+func (s *productService) GetProductByID(ctx context.Context, productID string) (*dto.ProductResponse, error) {
+	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, apperror.ErrProductNotFound
@@ -298,50 +214,7 @@ func (s *productService) GetProductByID(id string) (*dto.ProductResponse, error)
 	return dto.FromProduct(product), nil
 }
 
-func (s *productService) GetProductBySlug(slug string) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-	product, err := s.productRepo.GetBySlug(ctx, slug)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		fmt.Printf("Error string: %q\n", err.Error()) // In ra với quotes để thấy exact string
-		fmt.Printf("Is ErrNoDocuments: %v\n", errors.Is(err, mongo.ErrNoDocuments))
-		if errors.Is(err, mongo.ErrNoDocuments) || err.Error() == "mongo: no documents in result" {
-			return nil, apperror.ErrProductNotFound
-		}
-		return nil, err
-	}
-	return dto.FromProduct(product), nil
-}
-
-func (s *productService) GetProductsBySellerID(sellerID string) ([]*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	products, err := s.productRepo.GetBySellerID(ctx, sellerID)
-	if err != nil {
-		return nil, err
-	}
-
-	return dto.FromProducts(products), nil
-}
-
-func (s *productService) GetProductsByCategoryID(categoryID string) ([]*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	products, err := s.productRepo.GetByCategoryID(ctx, categoryID)
-	if err != nil {
-		return nil, err
-	}
-
-	return dto.FromProducts(products), nil
-}
-
-func (s *productService) FindProducts(filter repo.Filter, opts *repo.FindOptions) ([]*dto.ProductResponse, int64, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
+func (s *productService) FindProducts(ctx context.Context, filter repo.Filter, opts *repo.FindOptions) ([]*dto.ProductResponse, int64, error) {
 	products, total, err := s.productRepo.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, 0, err
@@ -350,282 +223,88 @@ func (s *productService) FindProducts(filter repo.Filter, opts *repo.FindOptions
 	return dto.FromProducts(products), total, nil
 }
 
-func (s *productService) AddVariant(productID string, sellerID string, req *dto.AddVariantRequest) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	product, err := s.productRepo.GetByID(ctx, productID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
-		return nil, err
-	}
-
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return nil, apperror.ErrForbidden
-	}
-
-	newVariant := model.ProductVariant{
-		ID:            primitive.NewObjectID(),
-		SKU:           req.SKU,
-		Attributes:    req.Attributes,
-		Price:         req.Price,
-		SalePrice:     req.SalePrice,
-		StockQuantity: req.StockQuantity,
-		SoldCount:     0,
-		Image:         req.Image,
-		Status:        model.ProductStatusActive,
-	}
-
-	product.Variants = append(product.Variants, newVariant)
-	product.HasVariants = true
-	product.UpdatedAt = time.Now()
-
-	updatedProduct, err := s.productRepo.Update(ctx, product)
-	if err != nil {
-		return nil, err
-	}
-
-	return dto.FromProduct(updatedProduct), nil
+func (s *productService) AddProductImages(ctx context.Context, productID string, images []model.Image) error {
+	return s.productRepo.AddImages(ctx, productID, images)
 }
 
-func (s *productService) UpdateVariant(productID string, variantID string, sellerID string, req *dto.UpdateVariantRequest) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
+func (s *productService) AddProductVideos(ctx context.Context, productID string, videos []model.Video) error {
+	return s.productRepo.AddVideos(ctx, productID, videos)
+}
 
+func (s *productService) CreateVariant(ctx context.Context, productID string, req dto.CreateVariantRequest) (*dto.VariantResponse, error) {
 	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
 		return nil, err
 	}
 
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return nil, apperror.ErrForbidden
+	variant := model.ProductVariant{
+		Title:           req.Title,
+		Description:     req.Description,
+		PriceAdjustment: req.PriceAdjustment,
+		FinalPrice:      (product.BasePrice + req.PriceAdjustment) * (1 - product.DiscountPercent/100),
+		StockQuantity:   req.StockQuantity,
 	}
 
+	createdVariant, err := s.productRepo.CreateVariant(ctx, productID, variant)
+	if err != nil {
+		return nil, err
+	}
+
+	return dto.FromVariant(createdVariant), nil
+}
+
+func (s *productService) UpdateVariant(ctx context.Context, productID string, variantID string, req dto.UpdateVariantRequest) (*dto.VariantResponse, error) {
 	variantObjID, err := primitive.ObjectIDFromHex(variantID)
 	if err != nil {
 		return nil, apperror.ErrInvalidID
 	}
 
-	// Find and update variant
-	variantFound := false
-	for i := range product.Variants {
-		if product.Variants[i].ID == variantObjID {
-			variantFound = true
-
-			if req.SKU != nil {
-				product.Variants[i].SKU = *req.SKU
-			}
-			if req.Attributes != nil {
-				product.Variants[i].Attributes = req.Attributes
-			}
-			if req.Price != nil {
-				product.Variants[i].Price = *req.Price
-			}
-			if req.SalePrice != nil {
-				product.Variants[i].SalePrice = req.SalePrice
-			}
-			if req.StockQuantity != nil {
-				product.Variants[i].StockQuantity = *req.StockQuantity
-			}
-			if req.Image != nil {
-				if product.Variants[i].Image != nil {
-					go cloudinary.Delete(product.Variants[i].Image.PublicID)
-				}
-				product.Variants[i].Image = req.Image
-			}
-			if req.Status != nil {
-				product.Variants[i].Status = *req.Status
-			}
-			break
-		}
+	variant := model.ProductVariant{
+		ID: variantObjID,
 	}
-
-	if !variantFound {
-		return nil, apperror.ErrVariantNotFound
-	}
-
-	product.UpdatedAt = time.Now()
-
-	updatedProduct, err := s.productRepo.Update(ctx, product)
-	if err != nil {
-		return nil, err
-	}
-
-	return dto.FromProduct(updatedProduct), nil
-}
-
-func (s *productService) DeleteVariant(productID string, variantID string, sellerID string) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
 	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
 		return nil, err
 	}
 
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return nil, apperror.ErrForbidden
+	if req.Title != nil {
+		variant.Title = *req.Title
 	}
-
-	variantObjID, err := primitive.ObjectIDFromHex(variantID)
-	if err != nil {
-		return nil, apperror.ErrInvalidID
+	if req.Description != nil {
+		variant.Description = *req.Description
 	}
-
-	// Find and remove variant
-	variantFound := false
-	newVariants := make([]model.ProductVariant, 0)
-	for _, v := range product.Variants {
-		if v.ID == variantObjID {
-			variantFound = true
-			// Delete variant image async
-			if v.Image != nil {
-				go cloudinary.Delete(v.Image.PublicID)
-			}
-			continue
-		}
-		newVariants = append(newVariants, v)
+	if req.PriceAdjustment != nil {
+		variant.PriceAdjustment = *req.PriceAdjustment
 	}
-
-	if !variantFound {
-		return nil, apperror.ErrVariantNotFound
+	if req.StockQuantity != nil {
+		variant.StockQuantity = *req.StockQuantity
 	}
-
-	product.Variants = newVariants
-	if len(product.Variants) == 0 {
-		product.HasVariants = false
-	}
-	product.UpdatedAt = time.Now()
-
-	updatedProduct, err := s.productRepo.Update(ctx, product)
+	variant.FinalPrice = (product.BasePrice + variant.PriceAdjustment) * (1 - product.DiscountPercent/100)
+	updatedVariant, err := s.productRepo.UpdateVariant(ctx, productID, variant)
 	if err != nil {
 		return nil, err
 	}
 
-	return dto.FromProduct(updatedProduct), nil
+	return dto.FromVariant(updatedVariant), nil
 }
 
-func (s *productService) UpdateProductStatus(productID string, sellerID string, status model.ProductStatus) (*dto.ProductResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	product, err := s.productRepo.GetByID(ctx, productID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
-		return nil, err
-	}
-
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return nil, apperror.ErrForbidden
-	}
-
-	product.Status = status
-	product.UpdatedAt = time.Now()
-
-	updatedProduct, err := s.productRepo.Update(ctx, product)
-	if err != nil {
-		return nil, err
-	}
-
-	//// Publish event
-	//s.eventBus.Publish(bus.ProductStatusChangedEventType{
-	//	ProductID: productID,
-	//	SellerID:  sellerID,
-	//	Status:    string(status),
-	//})
-
-	return dto.FromProduct(updatedProduct), nil
+func (s *productService) CheckAvailability(ctx context.Context, productID string, variantID *string, qty int) (bool, int, error) {
+	return s.productRepo.CheckAvailability(ctx, productID, variantID, qty)
 }
 
-func (s *productService) UpdateStock(productID string, sellerID string, quantity int) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
+func (s *productService) IncrementSoldCount(ctx context.Context, productID string, count int) error {
+	return s.productRepo.IncrementSoldCount(ctx, productID, count)
+}
 
+func (s *productService) UpdateRating(ctx context.Context, productID string, newRating float64) error {
 	product, err := s.productRepo.GetByID(ctx, productID)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return apperror.ErrProductNotFound
-		}
 		return err
 	}
 
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return apperror.ErrForbidden
-	}
+	// Calculate new average rating
+	newRatingCount := product.RatingCount + 1
+	averageRating := (product.Rating*float64(product.RatingCount) + newRating) / float64(newRatingCount)
 
-	return s.productRepo.UpdateStock(ctx, productID, quantity)
-}
-
-func (s *productService) UpdateVariantStock(productID string, variantID string, sellerID string, quantity int) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	product, err := s.productRepo.GetByID(ctx, productID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return apperror.ErrProductNotFound
-		}
-		return err
-	}
-
-	// Verify ownership
-	if product.SellerID.Hex() != sellerID {
-		return apperror.ErrForbidden
-	}
-
-	return s.productRepo.UpdateVariantStock(ctx, productID, variantID, quantity)
-}
-
-func (s *productService) IncrementViewCount(productID string) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	return s.productRepo.IncrementViewCount(ctx, productID)
-}
-
-func (s *productService) GetProductStats() (*dto.ProductStatsResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	total, err := s.productRepo.CountTotal(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	active, err := s.productRepo.CountByStatus(ctx, model.ProductStatusActive)
-	if err != nil {
-		return nil, err
-	}
-
-	outOfStock, err := s.productRepo.CountOutOfStock(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	newThisWeek, err := s.productRepo.CountCreatedAfter(ctx, time.Now().AddDate(0, 0, -7))
-	if err != nil {
-		return nil, err
-	}
-
-	return &dto.ProductStatsResponse{
-		Total:       total,
-		Active:      active,
-		OutOfStock:  outOfStock,
-		NewThisWeek: newThisWeek,
-	}, nil
+	return s.productRepo.UpdateRating(ctx, productID, averageRating, newRatingCount)
 }

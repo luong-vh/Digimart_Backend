@@ -1,14 +1,15 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
 	"github.com/luong-vh/Digimart_Backend/internal/dto"
 	"github.com/luong-vh/Digimart_Backend/internal/model"
 	"github.com/luong-vh/Digimart_Backend/internal/platform/bus"
 	"github.com/luong-vh/Digimart_Backend/internal/repo"
-	"github.com/luong-vh/Digimart_Backend/internal/util"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -16,24 +17,21 @@ import (
 
 type CartService interface {
 	// Cart operations
-	GetCart(userID string) (*dto.CartResponse, error)
-	GetCartWithRefresh(userID string) (*dto.CartResponse, error)
-	ClearCart(userID string) error
+	GetCart(ctx context.Context, userID string) (*dto.CartResponse, error)
+	ClearCart(ctx context.Context, userID string) error
+	GetItemCount(ctx context.Context, userID string) (int, error)
 
 	// Item operations
-	AddItem(userID string, req *dto.AddCartItemRequest) (*dto.CartResponse, error)
-	UpdateItemQuantity(userID string, req *dto.UpdateCartItemRequest) (*dto.CartResponse, error)
-	RemoveItem(userID string, productID string, variantID *string) (*dto.CartResponse, error)
+	AddItem(ctx context.Context, userID string, req dto.AddCartItemRequest) (*dto.CartResponse, error)
+	UpdateItemQuantity(ctx context.Context, userID string, req dto.UpdateCartItemRequest) (*dto.CartResponse, error)
+	RemoveItem(ctx context.Context, userID string, itemID string) (*dto.CartResponse, error)
 
 	// Batch operations
-	AddItems(userID string, req *dto.AddCartItemsRequest) (*dto.CartResponse, error)
-	RemoveItems(userID string, req *dto.RemoveCartItemsRequest) (*dto.CartResponse, error)
-
-	// Validation
-	ValidateCart(userID string) (*dto.CartValidationResponse, error)
-
-	// Stats
-	GetCartStats() (*dto.CartStatsResponse, error)
+	AddItems(ctx context.Context, userID string, req dto.AddCartItemsRequest) (*dto.CartResponse, error)
+	RemoveItems(ctx context.Context, userID string, req dto.RemoveCartItemsRequest) (*dto.CartResponse, error)
+	GetSnapshot(ctx context.Context, productID string, variantID *string) (*model.CartItemSnapshot, error)
+	// Checkout support
+	ValidateCart(ctx context.Context, userID string) (*dto.CartValidationResult, error)
 }
 
 type cartService struct {
@@ -54,55 +52,112 @@ func NewCartService(cartRepo repo.CartRepo, productRepo repo.ProductRepo, userRe
 	}
 }
 
-func (s *cartService) GetCart(userID string) (*dto.CartResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
+func (s *cartService) GetCart(ctx context.Context, userID string) (*dto.CartResponse, error) {
 	cart, err := s.cartRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return dto.FromCart(cart), nil
-}
+	items := make([]dto.CartItemResponse, 0, len(cart.Items))
+	var totalAmount float64
+	var totalQuantity int
 
-func (s *cartService) GetCartWithRefresh(userID string) (*dto.CartResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	cart, err := s.cartRepo.GetByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Refresh snapshots for all items
-	for i := range cart.Items {
-		snapshot, err := s.buildCartItemSnapshot(&cart.Items[i])
-		if err != nil {
-			// Mark as unavailable if product not found
-			if cart.Items[i].Snapshot != nil {
-				cart.Items[i].Snapshot.IsAvailable = false
-			}
-			continue
+	for _, item := range cart.Items {
+		resp := dto.CartItemResponse{
+			ID:        item.ID.Hex(),
+			ProductID: item.ProductID.Hex(),
+			Quantity:  item.Quantity,
+			AddedAt:   item.AddedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
-		cart.Items[i].Snapshot = snapshot
 
-		// Update snapshot in database
 		var variantIDStr *string
-		if cart.Items[i].VariantID != nil {
-			v := cart.Items[i].VariantID.Hex()
+		if item.VariantID != nil {
+			v := item.VariantID.Hex()
+			resp.VariantID = &v
 			variantIDStr = &v
 		}
-		_ = s.cartRepo.UpdateItemSnapshot(ctx, userID, cart.Items[i].ProductID.Hex(), variantIDStr, snapshot)
+
+		snapshot, err := s.GetSnapshot(ctx, item.ProductID.Hex(), variantIDStr)
+		if err != nil {
+			resp.IsAvailable = false
+			items = append(items, resp)
+			continue
+		}
+
+		resp.Snapshot = snapshot
+		resp.IsAvailable = snapshot.IsAvailable
+
+		if snapshot.IsAvailable {
+			totalAmount += snapshot.FinalPrice * float64(item.Quantity)
+			totalQuantity += item.Quantity
+		}
+
+		items = append(items, resp)
 	}
 
-	return dto.FromCart(cart), nil
+	return &dto.CartResponse{
+		ID:            cart.ID.Hex(),
+		UserID:        cart.UserID.Hex(),
+		Items:         items,
+		TotalAmount:   totalAmount,
+		TotalQuantity: totalQuantity,
+		CreatedAt:     cart.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:     cart.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}, nil
 }
 
-func (s *cartService) ClearCart(userID string) error {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
+func (s *cartService) GetSnapshot(ctx context.Context, productID string, variantID *string) (*model.CartItemSnapshot, error) {
+	variantIDStr := ""
+	if variantID != nil {
+		variantIDStr = *variantID
+	}
 
+	product, variant, err := s.productRepo.GetProductWithVariant(ctx, productID, variantIDStr)
+	if err != nil {
+		return nil, err
+	}
+
+	var basePrice float64
+	var finalPrice float64
+	var priceAdjustment float64
+	var stockQuantity int
+	var variantTitle *string
+	var variantObjID *primitive.ObjectID
+
+	if variant != nil {
+		basePrice = product.BasePrice
+		priceAdjustment = variant.PriceAdjustment
+		finalPrice = variant.FinalPrice
+		stockQuantity = variant.StockQuantity
+		variantTitle = &variant.Title
+		variantObjID = &variant.ID
+	} else {
+		basePrice = product.BasePrice
+		finalPrice = basePrice * (1 - product.DiscountPercent/100)
+		if product.StockQuantity != nil {
+			stockQuantity = *product.StockQuantity
+		}
+	}
+
+	snapshot := &model.CartItemSnapshot{
+		ProductID:       product.ID,
+		ProductName:     product.Name,
+		Brand:           product.Brand,
+		Thumbnail:       product.Thumbnail,
+		VariantID:       variantObjID,
+		VariantTitle:    variantTitle,
+		BasePrice:       basePrice,
+		DiscountPercent: product.DiscountPercent,
+		PriceAdjustment: priceAdjustment,
+		FinalPrice:      finalPrice,
+		StockQuantity:   stockQuantity,
+		IsAvailable:     product.Status == model.ProductStatusActive && stockQuantity > 0,
+	}
+
+	return snapshot, nil
+}
+
+func (s *cartService) ClearCart(ctx context.Context, userID string) error {
 	err := s.cartRepo.ClearCart(ctx, userID)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -110,136 +165,50 @@ func (s *cartService) ClearCart(userID string) error {
 		}
 		return err
 	}
-
-	//// Publish event
-	//s.eventBus.Publish(bus.CartClearedEventType{
-	//	UserID: userID,
-	//})
-
 	return nil
 }
 
-func (s *cartService) AddItem(userID string, req *dto.AddCartItemRequest) (*dto.CartResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Validate product exists and get info
-	product, err := s.productRepo.GetByID(ctx, req.ProductID)
+func (s *cartService) GetItemCount(ctx context.Context, userID string) (int, error) {
+	cart, err := s.cartRepo.GetByUserID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
-		return nil, err
+		return 0, err
 	}
+	return len(cart.Items), nil
+}
 
-	// Check if product is available
-	if product.Status != model.ProductStatusActive {
-		return nil, apperror.ErrProductNotAvailable
-	}
+func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCartItemRequest) (*dto.CartResponse, error) {
 
 	productObjID, _ := primitive.ObjectIDFromHex(req.ProductID)
-
 	var variantObjID *primitive.ObjectID
-	var variant *model.ProductVariant
-
-	// If product has variants, variant ID is required
-	if product.HasVariants {
-		if req.VariantID == nil {
-			return nil, apperror.ErrVariantRequired
-		}
-		vID, err := primitive.ObjectIDFromHex(*req.VariantID)
-		if err != nil {
-			return nil, apperror.ErrInvalidID
-		}
-		variantObjID = &vID
-
-		// Find variant
-		for i := range product.Variants {
-			if product.Variants[i].ID == vID {
-				variant = &product.Variants[i]
-				break
-			}
-		}
-		if variant == nil {
-			return nil, apperror.ErrVariantNotFound
-		}
-
-		// Check variant stock
-		if variant.StockQuantity < req.Quantity {
-			return nil, apperror.ErrInsufficientStock
-		}
-	} else {
-		// Check product stock
-		if product.StockQuantity < req.Quantity {
-			return nil, apperror.ErrInsufficientStock
-		}
+	if req.VariantID != "" {
+		vid, _ := primitive.ObjectIDFromHex(req.VariantID)
+		variantObjID = &vid
 	}
 
-	// Build snapshot
 	cartItem := model.CartItem{
+		ID:        primitive.NewObjectID(),
 		ProductID: productObjID,
 		VariantID: variantObjID,
-		SellerID:  product.SellerID,
 		Quantity:  req.Quantity,
+		AddedAt:   time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	snapshot, err := s.buildCartItemSnapshotFromProduct(product, variant)
-	if err != nil {
-		return nil, err
-	}
-	cartItem.Snapshot = snapshot
-
-	// Add item to cart
-	err = s.cartRepo.AddItem(ctx, userID, cartItem)
+	_, err := s.cartRepo.AddItem(ctx, userID, cartItem)
 	if err != nil {
 		return nil, err
 	}
 
-	//// Publish event
-	//s.eventBus.Publish(bus.CartItemAddedEventType{
-	//	UserID:    userID,
-	//	ProductID: req.ProductID,
-	//	VariantID: req.VariantID,
-	//	Quantity:  req.Quantity,
-	//})
-
-	return s.GetCart(userID)
+	return s.GetCart(ctx, userID)
 }
 
-func (s *cartService) UpdateItemQuantity(userID string, req *dto.UpdateCartItemRequest) (*dto.CartResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
+func (s *cartService) UpdateItemQuantity(ctx context.Context, userID string, req dto.UpdateCartItemRequest) (*dto.CartResponse, error) {
 	if req.Quantity <= 0 {
-		return s.RemoveItem(userID, req.ProductID, req.VariantID)
+		return s.RemoveItem(ctx, userID, req.ItemID)
 	}
 
-	// Validate stock
-	product, err := s.productRepo.GetByID(ctx, req.ProductID)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, apperror.ErrProductNotFound
-		}
-		return nil, err
-	}
-
-	if product.HasVariants && req.VariantID != nil {
-		variantObjID, _ := primitive.ObjectIDFromHex(*req.VariantID)
-		for _, v := range product.Variants {
-			if v.ID == variantObjID {
-				if v.StockQuantity < req.Quantity {
-					return nil, apperror.ErrInsufficientStock
-				}
-				break
-			}
-		}
-	} else {
-		if product.StockQuantity < req.Quantity {
-			return nil, apperror.ErrInsufficientStock
-		}
-	}
-
-	err = s.cartRepo.UpdateItemQuantity(ctx, userID, req.ProductID, req.VariantID, req.Quantity)
+	// Get cart item to find product and variant
+	cartItem, err := s.cartRepo.GetCartItemByID(ctx, userID, req.ItemID)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, apperror.ErrCartItemNotFound
@@ -247,22 +216,22 @@ func (s *cartService) UpdateItemQuantity(userID string, req *dto.UpdateCartItemR
 		return nil, err
 	}
 
-	//// Publish event
-	//s.eventBus.Publish(bus.CartItemUpdatedEventType{
-	//	UserID:    userID,
-	//	ProductID: req.ProductID,
-	//	VariantID: req.VariantID,
-	//	Quantity:  req.Quantity,
-	//})
+	// Check availability with new quantity
+	variantIDPtr := (*string)(nil)
+	if cartItem.VariantID != nil {
+		vid := cartItem.VariantID.Hex()
+		variantIDPtr = &vid
+	}
 
-	return s.GetCart(userID)
-}
+	isAvailable, _, err := s.productRepo.CheckAvailability(ctx, cartItem.ProductID.Hex(), variantIDPtr, req.Quantity)
+	if err != nil {
+		return nil, err
+	}
+	if !isAvailable {
+		return nil, apperror.ErrInsufficientStock
+	}
 
-func (s *cartService) RemoveItem(userID string, productID string, variantID *string) (*dto.CartResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	err := s.cartRepo.RemoveItem(ctx, userID, productID, variantID)
+	err = s.cartRepo.UpdateItemQuantity(ctx, userID, req.ItemID, req.Quantity)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, apperror.ErrCartItemNotFound
@@ -270,239 +239,106 @@ func (s *cartService) RemoveItem(userID string, productID string, variantID *str
 		return nil, err
 	}
 
-	// Publish event
-	//s.eventBus.Publish(bus.CartItemRemovedEventType{
-	//	UserID:    userID,
-	//	ProductID: productID,
-	//	VariantID: variantID,
-	//})
-
-	return s.GetCart(userID)
+	return s.GetCart(ctx, userID)
 }
 
-func (s *cartService) AddItems(userID string, req *dto.AddCartItemsRequest) (*dto.CartResponse, error) {
+func (s *cartService) RemoveItem(ctx context.Context, userID string, itemID string) (*dto.CartResponse, error) {
+	err := s.cartRepo.RemoveItem(ctx, userID, itemID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, apperror.ErrCartItemNotFound
+		}
+		return nil, err
+	}
+
+	return s.GetCart(ctx, userID)
+}
+
+func (s *cartService) AddItems(ctx context.Context, userID string, req dto.AddCartItemsRequest) (*dto.CartResponse, error) {
 	for _, item := range req.Items {
-		_, err := s.AddItem(userID, &item)
+		_, err := s.AddItem(ctx, userID, item)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return s.GetCart(userID)
+	return s.GetCart(ctx, userID)
 }
 
-func (s *cartService) RemoveItems(userID string, req *dto.RemoveCartItemsRequest) (*dto.CartResponse, error) {
+func (s *cartService) RemoveItems(ctx context.Context, userID string, req dto.RemoveCartItemsRequest) (*dto.CartResponse, error) {
 	for _, item := range req.Items {
-		_, err := s.RemoveItem(userID, item.ProductID, item.VariantID)
+		_, err := s.RemoveItem(ctx, userID, item.ID)
 		if err != nil && !errors.Is(err, apperror.ErrCartItemNotFound) {
 			return nil, err
 		}
 	}
 
-	return s.GetCart(userID)
+	return s.GetCart(ctx, userID)
 }
-
-func (s *cartService) ValidateCart(userID string) (*dto.CartValidationResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
+func (s *cartService) ValidateCart(ctx context.Context, userID string) (*dto.CartValidationResult, error) {
 	cart, err := s.cartRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	response := &dto.CartValidationResponse{
-		IsValid:       true,
-		InvalidItems:  []dto.InvalidCartItem{},
-		ValidItems:    []dto.ValidCartItem{},
-		TotalAmount:   0,
-		TotalQuantity: 0,
+	result := &dto.CartValidationResult{
+		IsValid:      true,
+		InvalidItems: []dto.CartItemInvalidReason{},
 	}
+
+	var totalPrice float64
 
 	for _, item := range cart.Items {
-		product, err := s.productRepo.GetByID(ctx, item.ProductID.Hex())
+		var variantIDStr *string
+		if item.VariantID != nil {
+			v := item.VariantID.Hex()
+			variantIDStr = &v
+		}
+
+		invalidReason := dto.CartItemInvalidReason{
+			ItemID: item.ID.Hex(),
+		}
+
+		// ── 1. Lấy snapshot — product có tồn tại không ──────────────
+		snapshot, err := s.GetSnapshot(ctx, item.ProductID.Hex(), variantIDStr)
 		if err != nil {
-			response.IsValid = false
-			response.InvalidItems = append(response.InvalidItems, dto.InvalidCartItem{
-				ProductID: item.ProductID.Hex(),
-				VariantID: func() *string {
-					if item.VariantID != nil {
-						v := item.VariantID.Hex()
-						return &v
-					}
-					return nil
-				}(),
-				Reason: "Product not found",
-			})
+			result.IsValid = false
+			invalidReason.Reason = "product_not_found"
+			result.InvalidItems = append(result.InvalidItems, invalidReason)
 			continue
 		}
 
-		// Check product status
-		if product.Status != model.ProductStatusActive {
-			response.IsValid = false
-			response.InvalidItems = append(response.InvalidItems, dto.InvalidCartItem{
-				ProductID: item.ProductID.Hex(),
-				Reason:    "Product not available",
-			})
+		// ── 2. Product có đang active không ─────────────────────────
+		if !snapshot.IsAvailable && snapshot.StockQuantity == 0 {
+			result.IsValid = false
+			invalidReason.Reason = "product_inactive"
+			result.InvalidItems = append(result.InvalidItems, invalidReason)
 			continue
 		}
 
-		var availableStock int
-		var price float64
-
-		if product.HasVariants && item.VariantID != nil {
-			variantFound := false
-			for _, v := range product.Variants {
-				if v.ID == *item.VariantID {
-					variantFound = true
-					availableStock = v.StockQuantity
-					price = v.GetEffectivePrice()
-					break
-				}
-			}
-			if !variantFound {
-				response.IsValid = false
-				response.InvalidItems = append(response.InvalidItems, dto.InvalidCartItem{
-					ProductID: item.ProductID.Hex(),
-					VariantID: func() *string { v := item.VariantID.Hex(); return &v }(),
-					Reason:    "Variant not found",
-				})
-				continue
-			}
-		} else {
-			availableStock = product.StockQuantity
-			price = product.GetEffectivePrice()
-		}
-
-		// Check stock
-		if item.Quantity > availableStock {
-			response.IsValid = false
-			response.InvalidItems = append(response.InvalidItems, dto.InvalidCartItem{
-				ProductID: item.ProductID.Hex(),
-				VariantID: func() *string {
-					if item.VariantID != nil {
-						v := item.VariantID.Hex()
-						return &v
-					}
-					return nil
-				}(),
-				Reason:         "Insufficient stock",
-				AvailableStock: availableStock,
-				RequestedQty:   item.Quantity,
-			})
+		// ── 3. Còn đủ hàng không ────────────────────────────────────
+		if snapshot.StockQuantity <= 0 {
+			result.IsValid = false
+			invalidReason.Reason = "out_of_stock"
+			result.InvalidItems = append(result.InvalidItems, invalidReason)
 			continue
 		}
 
-		// Item is valid
-		response.ValidItems = append(response.ValidItems, dto.ValidCartItem{
-			ProductID: item.ProductID.Hex(),
-			VariantID: func() *string {
-				if item.VariantID != nil {
-					v := item.VariantID.Hex()
-					return &v
-				}
-				return nil
-			}(),
-			Quantity:    item.Quantity,
-			Price:       price,
-			TotalAmount: price * float64(item.Quantity),
-		})
-
-		response.TotalAmount += price * float64(item.Quantity)
-		response.TotalQuantity += item.Quantity
-	}
-
-	return response, nil
-}
-
-func (s *cartService) GetCartStats() (*dto.CartStatsResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	total, err := s.cartRepo.CountTotal(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	nonEmpty, err := s.cartRepo.CountNonEmpty(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	avgItems, err := s.cartRepo.GetAverageItemCount(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &dto.CartStatsResponse{
-		TotalCarts:       total,
-		NonEmptyCarts:    nonEmpty,
-		AverageItemCount: avgItems,
-	}, nil
-}
-
-// Helper methods
-
-func (s *cartService) buildCartItemSnapshot(item *model.CartItem) (*model.CartItemSnapshot, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	product, err := s.productRepo.GetByID(ctx, item.ProductID.Hex())
-	if err != nil {
-		return nil, err
-	}
-
-	var variant *model.ProductVariant
-	if item.VariantID != nil {
-		for i := range product.Variants {
-			if product.Variants[i].ID == *item.VariantID {
-				variant = &product.Variants[i]
-				break
-			}
+		if snapshot.StockQuantity < item.Quantity {
+			result.IsValid = false
+			invalidReason.Reason = "insufficient_stock"
+			result.InvalidItems = append(result.InvalidItems, invalidReason)
+			continue
 		}
+
+		// ── 4. Giá có thay đổi không ────────────────────────────────
+		// Không block checkout — chỉ thông báo để user biết
+		// (nếu muốn block → đổi thành continue và set IsValid = false)
+
+		// ── 5. Item hợp lệ → cộng vào tổng ─────────────────────────
+		totalPrice += snapshot.FinalPrice * float64(item.Quantity)
 	}
 
-	return s.buildCartItemSnapshotFromProduct(product, variant)
-}
-
-func (s *cartService) buildCartItemSnapshotFromProduct(product *model.Product, variant *model.ProductVariant) (*model.CartItemSnapshot, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	// Get seller info
-	seller, err := s.userRepo.GetByID(ctx, product.SellerID.Hex())
-	if err != nil {
-		return nil, err
-	}
-
-	var sellerName string
-	if seller.RoleContent.Seller != nil {
-		sellerName = seller.FullName
-	}
-
-	snapshot := &model.CartItemSnapshot{
-		ProductName: product.Name,
-		SellerName:  sellerName,
-		Image:       product.Thumbnail,
-		IsAvailable: product.Status == model.ProductStatusActive,
-	}
-
-	if variant != nil {
-		snapshot.SKU = variant.SKU
-		snapshot.Price = variant.Price
-		snapshot.SalePrice = variant.SalePrice
-		snapshot.Stock = variant.StockQuantity
-		snapshot.Attributes = variant.Attributes
-		if variant.Image != nil {
-			snapshot.Image = *variant.Image
-		}
-		snapshot.IsAvailable = snapshot.IsAvailable && variant.Status == model.ProductStatusActive
-	} else {
-		snapshot.SKU = product.SKU
-		snapshot.Price = product.Price
-		snapshot.SalePrice = product.SalePrice
-		snapshot.Stock = product.StockQuantity
-	}
-
-	return snapshot, nil
+	result.TotalPrice = totalPrice
+	return result, nil
 }

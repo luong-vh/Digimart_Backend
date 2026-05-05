@@ -35,52 +35,6 @@ func (c *AdminUserController) GetBuyers(ctx *gin.Context) {
 	dto.SendSuccess(ctx, http.StatusOK, "Users retrieved successfully", response)
 }
 
-func (c *AdminUserController) GetSellers(ctx *gin.Context) {
-	var query dto.GetSellersQuery
-	if err := ctx.ShouldBindQuery(&query); err != nil {
-		dto.SendError(ctx, http.StatusBadRequest, "Invalid query parameters", apperror.ErrBadRequest.Code)
-		return
-	}
-
-	response, err := c.adminService.GetSellers(&query)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-	dto.SendSuccess(ctx, http.StatusOK, "Users retrieved successfully", response)
-}
-
-func (c *AdminUserController) ApproveSeller(ctx *gin.Context) {
-	userID := ctx.Param("user_id")
-	if userID == "" {
-		dto.SendError(ctx, http.StatusBadRequest, "User ID is required", apperror.ErrBadRequest.Code)
-		return
-	}
-
-	err := c.adminService.ApproveSeller(userID)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Seller approved", gin.H{"user_id": userID})
-}
-
-func (c *AdminUserController) RejectSeller(ctx *gin.Context) {
-	userID := ctx.Param("user_id")
-	if userID == "" {
-		dto.SendError(ctx, http.StatusBadRequest, "User ID is required", apperror.ErrBadRequest.Code)
-		return
-	}
-	err := c.adminService.RejectSeller(userID)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Seller rejected", gin.H{"user_id": userID})
-}
-
 // BanUser bans a user
 func (c *AdminUserController) BanUser(ctx *gin.Context) {
 	userID := ctx.Param("user_id")

@@ -17,79 +17,29 @@ type Cart struct {
 }
 
 type CartItem struct {
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
 	ProductID primitive.ObjectID  `bson:"product_id" json:"product_id"`
-	VariantID *primitive.ObjectID `bson:"variant_id,omitempty" json:"variant_id,omitempty"` // nil nếu product không có variant
-	SellerID  primitive.ObjectID  `bson:"seller_id" json:"seller_id"`
+	VariantID *primitive.ObjectID `bson:"variant_id,omitempty" json:"variant_id,omitempty"`
 	Quantity  int                 `bson:"quantity" json:"quantity"`
-	AddedAt   time.Time           `bson:"added_at" json:"added_at"`
 
-	// Snapshot data (lưu tại thời điểm add to cart để hiển thị)
-	// Sẽ được cập nhật khi load cart
-	Snapshot *CartItemSnapshot `bson:"snapshot,omitempty" json:"snapshot,omitempty"`
+	AddedAt   time.Time `bson:"added_at" json:"added_at"`
+	UpdatedAt time.Time `bson:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
-// CartItemSnapshot - Dữ liệu snapshot để hiển thị (có thể outdated)
 type CartItemSnapshot struct {
-	ProductName string      `bson:"product_name" json:"product_name"`
-	SellerName  string      `bson:"seller_name" json:"seller_name"`
-	SKU         string      `bson:"sku,omitempty" json:"sku,omitempty"`
-	Price       float64     `bson:"price" json:"price"`
-	SalePrice   *float64    `bson:"sale_price,omitempty" json:"sale_price,omitempty"`
-	Image       Image       `bson:"image" json:"image"`
-	Attributes  []Attribute `bson:"attributes,omitempty" json:"attributes,omitempty"` // VD: [{Màu: Đỏ}, {Size: M}]
-	Stock       int         `bson:"stock" json:"stock"`
-	IsAvailable bool        `bson:"is_available" json:"is_available"`
-}
+	ProductID   primitive.ObjectID `bson:"product_id" json:"product_id"`
+	ProductName string             `bson:"product_name" json:"product_name"`
+	Brand       string             `bson:"brand,omitempty" json:"brand,omitempty"`
+	Thumbnail   Image              `bson:"thumbnail" json:"thumbnail"`
 
-// ============ HELPER METHODS ============
+	VariantID    *primitive.ObjectID `bson:"variant_id,omitempty" json:"variant_id,omitempty"`
+	VariantTitle *string             `bson:"variant_title,omitempty" json:"variant_title,omitempty"`
 
-// GetEffectivePrice - Lấy giá thực tế
-func (s *CartItemSnapshot) GetEffectivePrice() float64 {
-	if s.SalePrice != nil && *s.SalePrice > 0 {
-		return *s.SalePrice
-	}
-	return s.Price
-}
+	BasePrice       float64 `bson:"base_price" json:"base_price"`
+	DiscountPercent float64 `bson:"discount_percent" json:"discount_percent"`
+	PriceAdjustment float64 `bson:"price_adjustment,omitempty" json:"price_adjustment,omitempty"`
+	FinalPrice      float64 `bson:"final_price" json:"final_price"`
 
-// GetItemTotal - Tính tổng tiền của item
-func (item *CartItem) GetItemTotal() float64 {
-	if item.Snapshot == nil {
-		return 0
-	}
-	return item.Snapshot.GetEffectivePrice() * float64(item.Quantity)
-}
-
-// GetCartTotal - Tính tổng tiền giỏ hàng
-func (c *Cart) GetCartTotal() float64 {
-	var total float64
-	for _, item := range c.Items {
-		total += item.GetItemTotal()
-	}
-	return total
-}
-
-// GetItemCount - Đếm số lượng sản phẩm
-func (c *Cart) GetItemCount() int {
-	count := 0
-	for _, item := range c.Items {
-		count += item.Quantity
-	}
-	return count
-}
-
-// FindItem - Tìm item trong cart
-func (c *Cart) FindItem(productID, variantID primitive.ObjectID) *CartItem {
-	for i := range c.Items {
-		if c.Items[i].ProductID == productID {
-			// Nếu không có variant
-			if c.Items[i].VariantID == nil && variantID.IsZero() {
-				return &c.Items[i]
-			}
-			// Nếu có variant
-			if c.Items[i].VariantID != nil && *c.Items[i].VariantID == variantID {
-				return &c.Items[i]
-			}
-		}
-	}
-	return nil
+	StockQuantity int  `bson:"stock_quantity" json:"stock_quantity"`
+	IsAvailable   bool `bson:"is_available" json:"is_available"`
 }

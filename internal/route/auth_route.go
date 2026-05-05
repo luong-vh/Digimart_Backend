@@ -18,7 +18,6 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, authCtrl *controller.AuthController
 		local.POST("/send-verification", authCtrl.SendEmailVerification)
 		local.POST("/verify-email", authCtrl.VerifyEmailCode)
 		local.POST("/complete-buyer-registration", authCtrl.CompleteBuyerRegistration)
-		local.POST("/complete-seller-registration", authCtrl.CompleteSellerRegistration)
 		local.POST("/resend-otp", authCtrl.ResendOTP)
 		local.POST("/login", authCtrl.Login)
 
@@ -33,6 +32,5 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, authCtrl *controller.AuthController
 	{
 		google.GET("/login", authCtrl.GoogleLogin)
 		google.GET("/callback", authCtrl.GoogleCallback)
-		google.POST("/complete-setup", authCtrl.CompleteGoogleSetup)
 	}
 }

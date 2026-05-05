@@ -177,35 +177,6 @@ func (c *OrderController) RequestReturn(ctx *gin.Context) {
 
 // ==================== Seller Endpoints ====================
 
-// GetSellerOrders retrieves all orders for the authenticated seller.
-func (c *OrderController) GetSellerOrders(ctx *gin.Context) {
-	authUser, exists := ctx.Get("authUser")
-	if !exists {
-		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrNotAuthenticated.Message, apperror.ErrNotAuthenticated.Code)
-		return
-	}
-
-	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
-		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
-		return
-	}
-
-	var query dto.OrderFilterQuery
-	if err := ctx.ShouldBindQuery(&query); err != nil {
-		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrBadRequest.Message, apperror.ErrBadRequest.Code)
-		return
-	}
-
-	orders, err := c.service.GetSellerOrders(user.ID, &query)
-	if err != nil {
-		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
-		return
-	}
-
-	dto.SendSuccess(ctx, http.StatusOK, "Seller orders retrieved successfully", orders)
-}
-
 // ConfirmOrder confirms an order by the seller.
 func (c *OrderController) ConfirmOrder(ctx *gin.Context) {
 	authUser, exists := ctx.Get("authUser")
@@ -215,7 +186,7 @@ func (c *OrderController) ConfirmOrder(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -244,7 +215,7 @@ func (c *OrderController) PackOrder(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -273,7 +244,7 @@ func (c *OrderController) ShipOrder(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -308,7 +279,7 @@ func (c *OrderController) UpdateTracking(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -343,7 +314,7 @@ func (c *OrderController) RejectOrder(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -378,7 +349,7 @@ func (c *OrderController) ProcessRefund(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}
@@ -407,7 +378,7 @@ func (c *OrderController) GetSellerOrderStats(ctx *gin.Context) {
 	}
 
 	user := authUser.(auth.AuthUser)
-	if user.Role != string(model.SellerRole) {
+	if user.Role != string(model.AdminRole) {
 		dto.SendError(ctx, http.StatusForbidden, apperror.ErrSellerAccessRequired.Message, apperror.ErrSellerAccessRequired.Code)
 		return
 	}

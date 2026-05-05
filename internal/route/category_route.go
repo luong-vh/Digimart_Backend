@@ -21,13 +21,6 @@ func RegisterCategoryRoutes(r *gin.RouterGroup, categoryController *controller.C
 		// Get by ID phải đặt sau các route cố định
 		categories.GET("/:id", categoryController.GetCategoryByID)
 
-		// Seller endpoints - Seller có thể thêm category
-		seller := categories.Group("/seller")
-		seller.Use(middleware.RequireAuth(), middleware.RequireSeller())
-		{
-			seller.POST("", categoryController.CreateCategory)
-		}
-
 		// Admin endpoints - Admin full quyền
 		admin := categories.Group("/admin")
 		admin.Use(middleware.RequireAuth(), middleware.RequireAdmin())

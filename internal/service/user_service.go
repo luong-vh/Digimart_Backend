@@ -22,7 +22,6 @@ import (
 // UserService handles business logic related to user management.
 type UserService interface {
 	UpdateBuyerProfile(userID string, req *dto.BuyerProfileUpdateRequest) (*dto.UserResponse, error)
-	UpdateSellerProfile(userID string, req *dto.SellerProfileUpdateRequest) (*dto.UserResponse, error)
 
 	DeleteUser(id string) error
 	ChangePassword(userID, oldPassword, newPassword string) error
@@ -113,111 +112,6 @@ func (s *userService) UpdateBuyerProfile(userID string, req *dto.BuyerProfileUpd
 
 	// Publish event nếu avatar thay đổi
 	if req.AvatarURL != nil && req.PublicID != nil {
-		s.eventBus.Publish(bus.UserChangeAvatarEventType{
-			UserID:    userID,
-			NewAvatar: *req.AvatarURL,
-		})
-	}
-
-	return dto.FromUser(updatedUser), nil
-}
-
-func (s *userService) UpdateSellerProfile(userID string, req *dto.SellerProfileUpdateRequest) (*dto.UserResponse, error) {
-	ctx, cancel := util.NewDefaultDBContext()
-	defer cancel()
-
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if user.RoleContent.Seller == nil {
-		user.RoleContent.Seller = &model.SellerRoleContent{}
-	}
-
-	if req.IdentityCard != nil {
-		user.RoleContent.Seller.IdentityCard = *req.IdentityCard
-	}
-
-	var oldAvatarPublicID string
-
-	// Cập nhật Avatar nếu có
-	if req.AvatarURL != nil && req.AvatarPublicID != nil {
-		if user.RoleContent.Seller.Avatar != nil {
-			oldAvatarPublicID = user.RoleContent.Seller.Avatar.PublicID
-		}
-		user.RoleContent.Seller.Avatar = &model.Image{
-			URL:        *req.AvatarURL,
-			PublicID:   *req.AvatarPublicID,
-			UploadedAt: time.Now(),
-		}
-	}
-
-	if req.BannerURL != nil && req.BannerPublicID != nil {
-		if user.RoleContent.Seller.Banner != nil {
-			go cloudinary.Delete(user.RoleContent.Seller.Banner.PublicID)
-		}
-		user.RoleContent.Seller.Banner = &model.Image{
-			URL:        *req.BannerURL,
-			PublicID:   *req.BannerPublicID,
-			UploadedAt: time.Now(),
-		}
-	}
-
-	if req.IDFrontImageURL != nil && req.IDFrontImagePublicID != nil {
-		go cloudinary.Delete(user.RoleContent.Seller.IDFrontImage.PublicID)
-		user.RoleContent.Seller.IDFrontImage = model.Image{
-			URL:        *req.IDFrontImageURL,
-			PublicID:   *req.IDFrontImagePublicID,
-			UploadedAt: time.Now(),
-		}
-	}
-
-	if req.IDBackImageURL != nil && req.IDBackImagePublicID != nil {
-		go cloudinary.Delete(user.RoleContent.Seller.IDBackImage.PublicID)
-		user.RoleContent.Seller.IDBackImage = model.Image{
-			URL:        *req.IDBackImageURL,
-			PublicID:   *req.IDBackImagePublicID,
-			UploadedAt: time.Now(),
-		}
-	}
-
-	if req.SelfieWithIDURL != nil && req.SelfieWithIDPublicID != nil {
-		go cloudinary.Delete(user.RoleContent.Seller.SelfieWithID.PublicID)
-		user.RoleContent.Seller.SelfieWithID = model.Image{
-			URL:        *req.SelfieWithIDURL,
-			PublicID:   *req.SelfieWithIDPublicID,
-			UploadedAt: time.Now(),
-		}
-	}
-
-	// Cập nhật PhoneNumber nếu có
-	if req.PhoneNumber != nil {
-		user.RoleContent.Seller.PhoneNumber = *req.PhoneNumber
-	}
-
-	if req.FullName != nil {
-		user.FullName = *req.FullName
-	}
-
-	// Cập nhật Address nếu có
-	if req.PickupAddress != nil {
-		user.RoleContent.Seller.PickupAddress = *req.PickupAddress
-	}
-
-	// Lưu vào database
-	updatedUser, err := s.userRepo.Update(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	// Xóa avatar cũ trên Cloudinary (async)
-	if oldAvatarPublicID != "" {
-		go cloudinary.Delete(oldAvatarPublicID)
-	}
-
-	// Publish event nếu avatar thay đổi
-	if req.AvatarURL != nil && req.AvatarPublicID != nil {
 		s.eventBus.Publish(bus.UserChangeAvatarEventType{
 			UserID:    userID,
 			NewAvatar: *req.AvatarURL,

@@ -36,15 +36,13 @@ const (
 type Role string
 
 const (
-	AdminRole  Role = "admin"
-	BuyerRole  Role = "buyer"
-	SellerRole Role = "seller"
+	AdminRole Role = "admin"
+	BuyerRole Role = "buyer"
 )
 
 type RoleContent struct {
-	Buyer  *BuyerRoleContent  `bson:"buyer,omitempty" json:"buyer,omitempty"`
-	Seller *SellerRoleContent `bson:"seller,omitempty" json:"seller,omitempty"`
-	Admin  *AdminRoleContent  `bson:"admin,omitempty" json:"admin,omitempty"`
+	Buyer *BuyerRoleContent `bson:"buyer,omitempty" json:"buyer,omitempty"`
+	Admin *AdminRoleContent `bson:"admin,omitempty" json:"admin,omitempty"`
 }
 
 // Buyer
@@ -59,30 +57,6 @@ type BuyerRoleContent struct {
 	TotalOrders int `bson:"total_orders,omitempty" json:"total_orders,omitempty"`
 	TotalSpent  int `bson:"total_spent,omitempty" json:"total_spent,omitempty"`
 }
-
-// Seller
-type SellerRoleContent struct {
-	Avatar        *Image     `bson:"avatar,omitempty" json:"avatar,omitempty"`
-	Banner        *Image     `bson:"banner,omitempty" json:"banner,omitempty"`
-	Categories    []Category `bson:"categories,omitempty" json:"categories,omitempty"`
-	PickupAddress Address    `bson:"pickup_address,omitempty" json:"pickup_address,omitempty"`
-	PhoneNumber   string     `bson:"phone_number,omitempty" json:"phone_number,omitempty"`
-
-	// CMND/CCCD để xác minh
-	IdentityCard string `bson:"identity_card,omitempty" json:"identity_card,omitempty"`
-	IDFrontImage Image  `bson:"id_front_image,omitempty" json:"id_front_image,omitempty"`
-	IDBackImage  Image  `bson:"id_back_image,omitempty" json:"id_back_image,omitempty"`
-	SelfieWithID Image  `bson:"selfie_with_id,omitempty" json:"selfie_with_id,omitempty"`
-
-	SellerStatus SellerStatus `bson:"seller_status,omitempty" json:"seller_status,omitempty"`
-}
-type SellerStatus string
-
-const (
-	SellerPending  SellerStatus = "pending"
-	SellerActive   SellerStatus = "active"
-	SellerRejected SellerStatus = "rejected"
-)
 
 // Admin
 type AdminRoleContent struct {
