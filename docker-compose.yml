@@ -5,15 +5,25 @@ services:
       - 8080:8080
     env_file:
       - ./.env
+    environment:
+      # Inside Docker Compose, services reach each other by service name.
+      # Keep REDIS_ADDR=localhost:6379 in .env for local `go run .`.
+      REDIS_ADDR: redis:6379
     networks:
       - shop-be-networks
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     
   redis:
     image: redis:latest
     ports:
       - "6379:6379" # Optional: allows you to connect to Redis from your host machine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - shop-be-networks
     volumes:

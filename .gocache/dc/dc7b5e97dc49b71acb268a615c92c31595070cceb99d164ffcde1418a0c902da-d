@@ -1,0 +1,12 @@
+./address.go
+./cart.go
+./category.go
+./common.go
+./email_verification.go
+./message.go
+./notification.go
+./order.go
+./password_reset.go
+./product.go
+./review.go
+./user.go
