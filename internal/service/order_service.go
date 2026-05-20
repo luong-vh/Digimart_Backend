@@ -2,11 +2,22 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
+	"github.com/luong-vh/Digimart_Backend/internal/config"
 	"github.com/luong-vh/Digimart_Backend/internal/dto"
 	"github.com/luong-vh/Digimart_Backend/internal/model"
 	"github.com/luong-vh/Digimart_Backend/internal/repo"
@@ -34,6 +45,7 @@ type OrderService interface {
 	GetOrderByNumber(orderNumber, userID, role string) (*dto.OrderResponse, error)
 	CancelOrder(orderID, customerID string, req *dto.CancelOrderRequest) (*dto.OrderResponse, error)
 	RequestReturn(orderID, customerID string, req *dto.ReturnOrderRequest) (*dto.OrderResponse, error)
+	UpdatePaymentMethod(orderID, customerID string, req *dto.UpdatePaymentMethodRequest) (*dto.OrderResponse, error)
 
 	// Seller
 	GetSellerOrders(sellerID string, query *dto.OrderFilterQuery) (*dto.PaginatedOrdersResponse, error)
@@ -54,6 +66,9 @@ type OrderService interface {
 	// Payment
 	UpdatePaymentStatus(orderID string, status model.PaymentStatus) error
 	MarkAsPaid(orderID string) error
+	CreateZaloPayPayment(orderID, userID, role string) (*dto.ZaloPayPaymentResponse, error)
+	SyncZaloPayPayment(orderID, userID, role string, req *dto.ZaloPaySyncRequest) (*dto.OrderResponse, error)
+	HandleZaloPayCallback(req *dto.ZaloPayCallbackRequest) error
 }
 
 type orderService struct {
@@ -284,6 +299,34 @@ func (s *orderService) RequestReturn(orderID, customerID string, req *dto.Return
 	return s.getAndReturnOrder(ctx, orderID)
 }
 
+func (s *orderService) UpdatePaymentMethod(orderID, customerID string, req *dto.UpdatePaymentMethodRequest) (*dto.OrderResponse, error) {
+	ctx, cancel := util.NewDefaultDBContext()
+	defer cancel()
+
+	if req == nil || !req.PaymentMethod.IsValid() {
+		return nil, apperror.ErrInvalidPaymentMethod
+	}
+
+	order, err := s.getOrderWithCustomerOwnership(ctx, orderID, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if order.PaymentStatus == model.PaymentStatusPaid ||
+		order.PaymentStatus == model.PaymentStatusRefunded ||
+		order.Status == model.OrderStatusCanceled ||
+		order.Status == model.OrderStatusReturned ||
+		order.Status == model.OrderStatusRefunded {
+		return nil, apperror.ErrInvalidOrderStatusTransition
+	}
+
+	if err := s.orderRepo.UpdatePaymentMethod(ctx, orderID, req.PaymentMethod); err != nil {
+		return nil, err
+	}
+
+	return s.getAndReturnOrder(ctx, orderID)
+}
+
 // ==================== Seller Methods ====================
 
 func (s *orderService) GetSellerOrders(sellerID string, query *dto.OrderFilterQuery) (*dto.PaginatedOrdersResponse, error) {
@@ -437,7 +480,7 @@ func (s *orderService) GetSellerOrderStats(sellerID string) (*dto.OrderStatsResp
 		return nil, apperror.ErrInvalidID
 	}
 
-	stats, err := s.orderRepo.GetStats(ctx, &sellerID)
+	stats, err := s.orderRepo.GetStats(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +620,250 @@ func (s *orderService) UpdatePaymentStatus(orderID string, status model.PaymentS
 }
 
 func (s *orderService) MarkAsPaid(orderID string) error {
-	return s.UpdatePaymentStatus(orderID, model.PaymentStatusPaid)
+	ctx, cancel := util.NewDefaultDBContext()
+	defer cancel()
+
+	order, err := s.getOrderByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+
+	if order.Status == model.OrderStatusCanceled ||
+		order.Status == model.OrderStatusReturned ||
+		order.Status == model.OrderStatusRefunded ||
+		order.PaymentStatus == model.PaymentStatusRefunded {
+		return apperror.ErrInvalidOrderStatusTransition
+	}
+
+	if order.PaymentStatus == model.PaymentStatusPaid {
+		return nil
+	}
+
+	return s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusPaid)
+}
+
+func (s *orderService) CreateZaloPayPayment(orderID, userID, role string) (*dto.ZaloPayPaymentResponse, error) {
+	ctx, cancel := util.NewDefaultDBContext()
+	defer cancel()
+
+	order, err := s.getOrderByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkOrderAccess(order, userID, role); err != nil {
+		return nil, err
+	}
+	if order.PaymentStatus == model.PaymentStatusPaid {
+		return nil, apperror.ErrInvalidOrderStatusTransition
+	}
+	if order.Status == model.OrderStatusCanceled || order.Status == model.OrderStatusReturned || order.Status == model.OrderStatusRefunded {
+		return nil, apperror.ErrInvalidOrderStatusTransition
+	}
+
+	appTransID := fmt.Sprintf("%s_%s_%06d", time.Now().Format("060102"), order.ID.Hex(), time.Now().UnixNano()%1000000)
+	appTime := time.Now().UnixMilli()
+	amount := int64(math.Round(order.Total))
+
+	items := make([]map[string]interface{}, 0, len(order.Items))
+	for _, item := range order.Items {
+		items = append(items, map[string]interface{}{
+			"itemid":       item.ProductID.Hex(),
+			"itemname":     item.ProductName,
+			"itemprice":    int64(math.Round(item.Price)),
+			"itemquantity": item.Quantity,
+		})
+	}
+
+	itemJSON, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+
+	embedData := map[string]interface{}{
+		"order_id":    order.ID.Hex(),
+		"redirecturl": config.Cfg.ZaloPay.RedirectURL,
+	}
+	preferredMethods := preferredZaloPayMethods(order.PaymentMethod)
+	if len(preferredMethods) > 0 {
+		embedData["preferred_payment_method"] = preferredMethods
+	}
+	embedJSON, err := json.Marshal(embedData)
+	if err != nil {
+		return nil, err
+	}
+
+	appUser := order.CustomerID.Hex()
+	description := fmt.Sprintf("DigiMart - Thanh toan don hang %s", order.OrderNumber)
+	macInput := fmt.Sprintf("%d|%s|%s|%d|%d|%s|%s",
+		config.Cfg.ZaloPay.AppID,
+		appTransID,
+		appUser,
+		amount,
+		appTime,
+		string(embedJSON),
+		string(itemJSON),
+	)
+
+	form := url.Values{}
+	form.Set("app_id", strconv.Itoa(config.Cfg.ZaloPay.AppID))
+	form.Set("app_trans_id", appTransID)
+	form.Set("app_user", appUser)
+	form.Set("app_time", strconv.FormatInt(appTime, 10))
+	form.Set("amount", strconv.FormatInt(amount, 10))
+	form.Set("description", description)
+	form.Set("item", string(itemJSON))
+	form.Set("embed_data", string(embedJSON))
+	form.Set("bank_code", "")
+	form.Set("mac", hmacSHA256Hex(config.Cfg.ZaloPay.Key1, macInput))
+	if config.Cfg.ZaloPay.CallbackURL != "" {
+		form.Set("callback_url", config.Cfg.ZaloPay.CallbackURL)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, config.Cfg.ZaloPay.CreateURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("zalopay create order failed: %s", string(body))
+	}
+
+	var result dto.ZaloPayPaymentResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	result.OrderID = order.ID.Hex()
+	result.AppTransID = appTransID
+	if result.ReturnCode != 1 {
+		return &result, fmt.Errorf("zalopay create order failed: %s", result.ReturnMessage)
+	}
+
+	return &result, nil
+}
+
+func (s *orderService) HandleZaloPayCallback(req *dto.ZaloPayCallbackRequest) error {
+	if req == nil || req.Data == "" || req.Mac == "" {
+		return apperror.ErrBadRequest
+	}
+
+	expectedMac := hmacSHA256Hex(config.Cfg.ZaloPay.Key2, req.Data)
+	if !hmac.Equal([]byte(strings.ToLower(expectedMac)), []byte(strings.ToLower(req.Mac))) {
+		return apperror.ErrInvalidToken
+	}
+
+	var data struct {
+		AppTransID string `json:"app_trans_id"`
+		Amount     int64  `json:"amount"`
+	}
+	if err := json.Unmarshal([]byte(req.Data), &data); err != nil {
+		return err
+	}
+
+	orderID := orderIDFromZaloPayTransID(data.AppTransID)
+	if orderID == "" {
+		return apperror.ErrInvalidID
+	}
+
+	ctx, cancel := util.NewDefaultDBContext()
+	defer cancel()
+
+	order, err := s.getOrderByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if int64(math.Round(order.Total)) != data.Amount {
+		return apperror.ErrBadRequest
+	}
+
+	return s.MarkAsPaid(orderID)
+}
+
+func (s *orderService) SyncZaloPayPayment(orderID, userID, role string, req *dto.ZaloPaySyncRequest) (*dto.OrderResponse, error) {
+	if req == nil || req.AppTransID == "" {
+		return nil, apperror.ErrBadRequest
+	}
+
+	if parsedOrderID := orderIDFromZaloPayTransID(req.AppTransID); parsedOrderID != orderID {
+		return nil, apperror.ErrInvalidID
+	}
+
+	ctx, cancel := util.NewDefaultDBContext()
+	defer cancel()
+
+	order, err := s.getOrderByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkOrderAccess(order, userID, role); err != nil {
+		return nil, err
+	}
+	if order.PaymentStatus == model.PaymentStatusPaid {
+		return dto.FromOrder(order), nil
+	}
+
+	appID := strconv.Itoa(config.Cfg.ZaloPay.AppID)
+	macInput := fmt.Sprintf("%s|%s|%s", appID, req.AppTransID, config.Cfg.ZaloPay.Key1)
+
+	form := url.Values{}
+	form.Set("app_id", appID)
+	form.Set("app_trans_id", req.AppTransID)
+	form.Set("mac", hmacSHA256Hex(config.Cfg.ZaloPay.Key1, macInput))
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, config.Cfg.ZaloPay.QueryURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("zalopay query order failed: %s", string(body))
+	}
+
+	var result struct {
+		ReturnCode    int    `json:"return_code"`
+		ReturnMessage string `json:"return_message"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	switch result.ReturnCode {
+	case 1:
+		if err := s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusPaid); err != nil {
+			return nil, err
+		}
+	case 2:
+		if err := s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusFailed); err != nil {
+			return nil, err
+		}
+	case 3:
+		// ZaloPay is still processing; keep the local status as-is.
+	default:
+		return nil, fmt.Errorf("zalopay query order failed: %s", result.ReturnMessage)
+	}
+
+	return s.getAndReturnOrder(ctx, orderID)
 }
 
 // ==================== Helper Methods ====================
@@ -625,13 +911,8 @@ func (s *orderService) getOrderWithSellerOwnership(ctx context.Context, orderID,
 		return nil, err
 	}
 
-	sellerObjID, err := primitive.ObjectIDFromHex(sellerID)
-	if err != nil {
+	if _, err := primitive.ObjectIDFromHex(sellerID); err != nil {
 		return nil, apperror.ErrInvalidID
-	}
-
-	if order.SellerID != sellerObjID {
-		return nil, apperror.ErrForbidden
 	}
 
 	return order, nil
@@ -711,30 +992,264 @@ func (s *orderService) validateAndBuildOrderItems(ctx context.Context, items []d
 		subtotal += orderItem.Subtotal
 	}
 
+	adminSellerID, err := s.getDefaultSellerID(ctx)
+	if err != nil {
+		return nil, primitive.NilObjectID, 0, err
+	}
+	sellerID = adminSellerID
+
 	return orderItems, sellerID, subtotal, nil
 }
 
 func (s *orderService) buildOrderItem(product *model.Product, productObjID primitive.ObjectID, item dto.OrderItemRequest) (*model.OrderItem, error) {
-	return nil, nil
+	price := product.BasePrice
+	sku := productObjID.Hex()
+
+	if product.IsHasVariant {
+		if item.VariantID == "" {
+			return nil, apperror.ErrVariantRequired
+		}
+
+		variant, ok := s.findVariant(product.Variants, item.VariantID)
+		if !ok {
+			return nil, apperror.ErrVariantNotFound
+		}
+		if variant.StockQuantity < item.Quantity {
+			return nil, apperror.ErrInsufficientStock
+		}
+
+		price = variant.FinalPrice
+		if price <= 0 {
+			price = product.BasePrice + variant.PriceAdjustment
+		}
+		sku = variant.ID.Hex()
+	} else {
+		if product.StockQuantity == nil || *product.StockQuantity < item.Quantity {
+			return nil, apperror.ErrInsufficientStock
+		}
+	}
+
+	if product.DiscountPercent > 0 {
+		price = price * (100 - product.DiscountPercent) / 100
+	}
+
+	orderItem := &model.OrderItem{
+		ProductID:   productObjID,
+		VariantID:   item.VariantID,
+		ProductName: product.Name,
+		SKU:         sku,
+		Image:       product.Thumbnail,
+		Price:       price,
+		Quantity:    item.Quantity,
+	}
+	orderItem.CalculateSubtotal()
+
+	return orderItem, nil
 }
 
 func (s *orderService) validateAndBuildShippingAddress(ctx context.Context, req *dto.ShippingAddressRequest) (*model.ShippingAddress, error) {
+	if req == nil || req.RecipientName == "" || req.PhoneNumber == "" || req.ProvinceID == "" || req.WardID == "" || req.Detail == "" {
+		return nil, apperror.ErrBadRequest
+	}
 
-	return nil, nil
+	provinceObjID, err := primitive.ObjectIDFromHex(req.ProvinceID)
+	if err != nil {
+		return nil, apperror.ErrInvalidID
+	}
+
+	province, err := s.provinceRepo.GetByID(ctx, provinceObjID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, apperror.ErrProvinceNotFound
+		}
+		return nil, err
+	}
+
+	ward, err := s.provinceRepo.GetWardByID(ctx, provinceObjID, req.WardID)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, apperror.ErrWardNotFound
+		}
+		return nil, err
+	}
+
+	address := &model.ShippingAddress{
+		RecipientName: req.RecipientName,
+		PhoneNumber:   req.PhoneNumber,
+		ProvinceID:    province.ID,
+		ProvinceName:  province.Name,
+		WardID:        ward.ID,
+		WardName:      ward.Name,
+		Detail:        req.Detail,
+	}
+	address.BuildFullAddress()
+
+	return address, nil
 }
 
 func (s *orderService) decreaseStock(ctx context.Context, items []dto.OrderItemRequest) error {
+	decreased := make([]dto.OrderItemRequest, 0, len(items))
+
+	for _, item := range items {
+		product, err := s.productRepo.GetByID(ctx, item.ProductID)
+		if err != nil {
+			s.rollbackDecreasedStock(ctx, decreased)
+			return err
+		}
+
+		if item.VariantID != "" {
+			variantObjID, err := primitive.ObjectIDFromHex(item.VariantID)
+			if err != nil {
+				s.rollbackDecreasedStock(ctx, decreased)
+				return apperror.ErrInvalidID
+			}
+
+			found := false
+			for i := range product.Variants {
+				if product.Variants[i].ID == variantObjID {
+					if product.Variants[i].StockQuantity < item.Quantity {
+						s.rollbackDecreasedStock(ctx, decreased)
+						return apperror.ErrInsufficientStock
+					}
+					product.Variants[i].StockQuantity -= item.Quantity
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.rollbackDecreasedStock(ctx, decreased)
+				return apperror.ErrVariantNotFound
+			}
+		} else {
+			if product.StockQuantity == nil || *product.StockQuantity < item.Quantity {
+				s.rollbackDecreasedStock(ctx, decreased)
+				return apperror.ErrInsufficientStock
+			}
+			stock := *product.StockQuantity - item.Quantity
+			product.StockQuantity = &stock
+		}
+
+		product.SoldCount += item.Quantity
+		if _, err := s.productRepo.Update(ctx, product); err != nil {
+			s.rollbackDecreasedStock(ctx, decreased)
+			return err
+		}
+
+		decreased = append(decreased, item)
+	}
 
 	return nil
 }
 
 func (s *orderService) rollbackDecreasedStock(ctx context.Context, items []dto.OrderItemRequest) {
-	return
+	for _, item := range items {
+		product, err := s.productRepo.GetByID(ctx, item.ProductID)
+		if err != nil {
+			continue
+		}
+
+		if item.VariantID != "" {
+			variantObjID, err := primitive.ObjectIDFromHex(item.VariantID)
+			if err != nil {
+				continue
+			}
+			for i := range product.Variants {
+				if product.Variants[i].ID == variantObjID {
+					product.Variants[i].StockQuantity += item.Quantity
+					break
+				}
+			}
+		} else if product.StockQuantity != nil {
+			stock := *product.StockQuantity + item.Quantity
+			product.StockQuantity = &stock
+		}
+
+		product.SoldCount -= item.Quantity
+		if product.SoldCount < 0 {
+			product.SoldCount = 0
+		}
+		_, _ = s.productRepo.Update(ctx, product)
+	}
 }
 
 func (s *orderService) restoreStock(ctx context.Context, items []model.OrderItem) error {
+	for _, item := range items {
+		product, err := s.productRepo.GetByID(ctx, item.ProductID.Hex())
+		if err != nil {
+			return err
+		}
+
+		if item.VariantID != "" {
+			variantObjID, err := primitive.ObjectIDFromHex(item.VariantID)
+			if err != nil {
+				return apperror.ErrInvalidID
+			}
+			for i := range product.Variants {
+				if product.Variants[i].ID == variantObjID {
+					product.Variants[i].StockQuantity += item.Quantity
+					break
+				}
+			}
+		} else if product.StockQuantity != nil {
+			stock := *product.StockQuantity + item.Quantity
+			product.StockQuantity = &stock
+		}
+
+		product.SoldCount -= item.Quantity
+		if product.SoldCount < 0 {
+			product.SoldCount = 0
+		}
+		if _, err := s.productRepo.Update(ctx, product); err != nil {
+			return err
+		}
+	}
 
 	return nil
+}
+
+func (s *orderService) getDefaultSellerID(ctx context.Context) (primitive.ObjectID, error) {
+	admins, _, err := s.userRepo.Find(ctx, repo.Filter{
+		"role":       model.AdminRole,
+		"deleted_at": bson.M{"$exists": false},
+	}, &repo.FindOptions{
+		Limit: 1,
+		Sort:  map[string]int{"created_at": 1},
+	})
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+	if len(admins) == 0 {
+		return primitive.NilObjectID, apperror.ErrAdminAccessRequired
+	}
+
+	return admins[0].ID, nil
+}
+
+func hmacSHA256Hex(key, data string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(data))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func orderIDFromZaloPayTransID(appTransID string) string {
+	parts := strings.Split(appTransID, "_")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+func preferredZaloPayMethods(method model.PaymentMethod) []string {
+	switch method {
+	case model.PaymentMethodBankTransfer:
+		return []string{"vietqr", "domestic_card"}
+	case model.PaymentMethodEWallet:
+		return []string{"zalopay_wallet"}
+	case model.PaymentMethodCreditCard:
+		return []string{"international_card"}
+	default:
+		return nil
+	}
 }
 
 func (s *orderService) findOrdersWithPagination(ctx context.Context, filter repo.Filter, query *dto.OrderFilterQuery) (*dto.PaginatedOrdersResponse, error) {

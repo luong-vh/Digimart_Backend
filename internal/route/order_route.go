@@ -7,6 +7,8 @@ import (
 )
 
 func RegisterOrderRoutes(r *gin.RouterGroup, orderController *controller.OrderController) {
+	r.POST("/payments/zalopay/callback", orderController.ZaloPayCallback)
+
 	orders := r.Group("/orders")
 	{
 		// Customer endpoints (authenticated)
@@ -17,6 +19,9 @@ func RegisterOrderRoutes(r *gin.RouterGroup, orderController *controller.OrderCo
 			customer.GET("/my-orders", orderController.GetMyOrders)
 			customer.GET("/:id", orderController.GetOrderByID)
 			customer.GET("/number/:orderNumber", orderController.GetOrderByNumber)
+			customer.POST("/:id/payments/zalopay", orderController.CreateZaloPayPayment)
+			customer.POST("/:id/payments/zalopay/sync", orderController.SyncZaloPayPayment)
+			customer.PUT("/:id/payment-method", orderController.UpdatePaymentMethod)
 			customer.POST("/:id/cancel", orderController.CancelOrder)
 			customer.POST("/:id/return", orderController.RequestReturn)
 		}
@@ -33,7 +38,7 @@ func RegisterOrderRoutes(r *gin.RouterGroup, orderController *controller.OrderCo
 			admin.POST("/:id/reject", orderController.RejectOrder)
 			admin.POST("/:id/refund", orderController.ProcessRefund)
 			admin.GET("", orderController.GetAllOrders)
-			
+
 			admin.PUT("/:id/status", orderController.AdminUpdateStatus)
 			admin.POST("/:id/deliver", orderController.AdminMarkAsDelivered)
 			admin.POST("/:id/mark-paid", orderController.MarkAsPaid)

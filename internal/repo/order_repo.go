@@ -48,6 +48,7 @@ type OrderRepo interface {
 	// Status updates
 	UpdateStatus(ctx context.Context, id string, status model.OrderStatus, history model.StatusHistory) error
 	UpdatePaymentStatus(ctx context.Context, id string, status model.PaymentStatus) error
+	UpdatePaymentMethod(ctx context.Context, id string, method model.PaymentMethod) error
 	UpdateTracking(ctx context.Context, id string, trackingNumber, carrier string, estimatedDelivery *time.Time) error
 	UpdateCancelReason(ctx context.Context, id string, reason string) error
 
@@ -397,6 +398,32 @@ func (r *orderRepo) UpdatePaymentStatus(ctx context.Context, id string, status m
 	}
 
 	update := bson.M{"$set": setFields}
+
+	result, err := r.orderCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		return mongo.ErrNoDocuments
+	}
+
+	return nil
+}
+
+func (r *orderRepo) UpdatePaymentMethod(ctx context.Context, id string, method model.PaymentMethod) error {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return apperror.ErrInvalidID
+	}
+
+	filter := bson.M{"_id": objectID, "deleted_at": bson.M{"$exists": false}}
+	update := bson.M{
+		"$set": bson.M{
+			"payment_method": method,
+			"updated_at":     time.Now(),
+		},
+	}
 
 	result, err := r.orderCollection.UpdateOne(ctx, filter, update)
 	if err != nil {

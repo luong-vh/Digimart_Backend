@@ -175,6 +175,35 @@ func (c *OrderController) RequestReturn(ctx *gin.Context) {
 	dto.SendSuccess(ctx, http.StatusOK, "Return request submitted successfully", order)
 }
 
+// UpdatePaymentMethod changes payment method for an unpaid customer order.
+func (c *OrderController) UpdatePaymentMethod(ctx *gin.Context) {
+	authUser, exists := ctx.Get("authUser")
+	if !exists {
+		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrNotAuthenticated.Message, apperror.ErrNotAuthenticated.Code)
+		return
+	}
+
+	orderID := ctx.Param("id")
+	if orderID == "" {
+		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrInvalidID.Message, apperror.ErrInvalidID.Code)
+		return
+	}
+
+	var req dto.UpdatePaymentMethodRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrBadRequest.Message, apperror.ErrBadRequest.Code)
+		return
+	}
+
+	order, err := c.service.UpdatePaymentMethod(orderID, authUser.(auth.AuthUser).ID, &req)
+	if err != nil {
+		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
+		return
+	}
+
+	dto.SendSuccess(ctx, http.StatusOK, "Payment method updated successfully", order)
+}
+
 // ==================== Seller Endpoints ====================
 
 // ConfirmOrder confirms an order by the seller.
@@ -463,6 +492,76 @@ func (c *OrderController) GetOrderStats(ctx *gin.Context) {
 }
 
 // ==================== Payment Endpoints ====================
+
+// CreateZaloPayPayment creates a ZaloPay sandbox payment URL for an order.
+func (c *OrderController) CreateZaloPayPayment(ctx *gin.Context) {
+	authUser, exists := ctx.Get("authUser")
+	if !exists {
+		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrNotAuthenticated.Message, apperror.ErrNotAuthenticated.Code)
+		return
+	}
+
+	orderID := ctx.Param("id")
+	if orderID == "" {
+		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrInvalidID.Message, apperror.ErrInvalidID.Code)
+		return
+	}
+
+	user := authUser.(auth.AuthUser)
+	payment, err := c.service.CreateZaloPayPayment(orderID, user.ID, user.Role)
+	if err != nil {
+		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
+		return
+	}
+
+	dto.SendSuccess(ctx, http.StatusOK, "ZaloPay payment created successfully", payment)
+}
+
+// SyncZaloPayPayment queries ZaloPay and updates the local payment status.
+func (c *OrderController) SyncZaloPayPayment(ctx *gin.Context) {
+	authUser, exists := ctx.Get("authUser")
+	if !exists {
+		dto.SendError(ctx, http.StatusUnauthorized, apperror.ErrNotAuthenticated.Message, apperror.ErrNotAuthenticated.Code)
+		return
+	}
+
+	orderID := ctx.Param("id")
+	if orderID == "" {
+		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrInvalidID.Message, apperror.ErrInvalidID.Code)
+		return
+	}
+
+	var req dto.ZaloPaySyncRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		dto.SendError(ctx, http.StatusBadRequest, apperror.ErrBadRequest.Message, apperror.ErrBadRequest.Code)
+		return
+	}
+
+	user := authUser.(auth.AuthUser)
+	order, err := c.service.SyncZaloPayPayment(orderID, user.ID, user.Role, &req)
+	if err != nil {
+		dto.SendError(ctx, apperror.StatusFromError(err), apperror.Message(err), apperror.Code(err))
+		return
+	}
+
+	dto.SendSuccess(ctx, http.StatusOK, "ZaloPay payment synced successfully", order)
+}
+
+// ZaloPayCallback receives server-to-server payment notifications from ZaloPay.
+func (c *OrderController) ZaloPayCallback(ctx *gin.Context) {
+	var req dto.ZaloPayCallbackRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusOK, gin.H{"return_code": -1, "return_message": "invalid request"})
+		return
+	}
+
+	if err := c.service.HandleZaloPayCallback(&req); err != nil {
+		ctx.JSON(http.StatusOK, gin.H{"return_code": -1, "return_message": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"return_code": 1, "return_message": "success"})
+}
 
 // MarkAsPaid marks an order as paid (for webhook/admin use).
 func (c *OrderController) MarkAsPaid(ctx *gin.Context) {

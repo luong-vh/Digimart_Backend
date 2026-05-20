@@ -53,6 +53,20 @@ type UpdateOrderStatusRequest struct {
 	Note   string            `json:"note"`
 }
 
+type UpdatePaymentMethodRequest struct {
+	PaymentMethod model.PaymentMethod `json:"payment_method" binding:"required"`
+}
+
+type ZaloPayCallbackRequest struct {
+	Data string `json:"data" binding:"required"`
+	Mac  string `json:"mac" binding:"required"`
+	Type int    `json:"type"`
+}
+
+type ZaloPaySyncRequest struct {
+	AppTransID string `json:"app_trans_id" binding:"required"`
+}
+
 // ==================== Query DTOs ====================
 
 type OrderFilterQuery struct {
@@ -160,6 +174,19 @@ type OrderStatsResponse struct {
 	ReturnedOrders  int64   `json:"returned_orders"`
 	RefundedOrders  int64   `json:"refunded_orders"`
 	TotalRevenue    float64 `json:"total_revenue"`
+}
+
+type ZaloPayPaymentResponse struct {
+	OrderID          string `json:"order_id"`
+	AppTransID       string `json:"app_trans_id"`
+	ReturnCode       int    `json:"return_code"`
+	ReturnMessage    string `json:"return_message"`
+	SubReturnCode    int    `json:"sub_return_code"`
+	SubReturnMessage string `json:"sub_return_message"`
+	ZPTransToken     string `json:"zp_trans_token,omitempty"`
+	OrderURL         string `json:"order_url,omitempty"`
+	OrderToken       string `json:"order_token,omitempty"`
+	QRCode           string `json:"qr_code,omitempty"`
 }
 
 // ==================== Converters ====================
