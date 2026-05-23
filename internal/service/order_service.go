@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -76,6 +77,7 @@ type orderService struct {
 	productRepo  repo.ProductRepo
 	provinceRepo repo.ProvinceRepo
 	userRepo     repo.UserRepo
+	notification NotificationService
 }
 
 func NewOrderService(
@@ -83,12 +85,14 @@ func NewOrderService(
 	productRepo repo.ProductRepo,
 	provinceRepo repo.ProvinceRepo,
 	userRepo repo.UserRepo,
+	notification NotificationService,
 ) OrderService {
 	return &orderService{
 		orderRepo:    orderRepo,
 		productRepo:  productRepo,
 		provinceRepo: provinceRepo,
 		userRepo:     userRepo,
+		notification: notification,
 	}
 }
 
@@ -184,6 +188,10 @@ func (s *orderService) PlaceOrder(customerID string, req *dto.PlaceOrderRequest)
 		_ = s.restoreStock(ctx, items)
 		return nil, err
 	}
+	s.notifySellerOrder(ctx, createdOrder, model.NotificationTypeOrderStatus, fmt.Sprintf("Có đơn hàng mới %s cần xác nhận", createdOrder.OrderNumber), map[string]interface{}{
+		"status": createdOrder.Status,
+		"total":  createdOrder.Total,
+	})
 
 	return dto.FromOrder(createdOrder), nil
 }
@@ -268,6 +276,9 @@ func (s *orderService) CancelOrder(orderID, customerID string, req *dto.CancelOr
 
 	// Restore stock
 	_ = s.restoreStock(ctx, order.Items)
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderCanceled, fmt.Sprintf("Đơn hàng %s đã được hủy", order.OrderNumber), map[string]interface{}{
+		"reason": req.Reason,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -295,6 +306,7 @@ func (s *orderService) RequestReturn(orderID, customerID string, req *dto.Return
 	if err := s.orderRepo.UpdateStatus(ctx, orderID, model.OrderStatusReturned, history); err != nil {
 		return nil, err
 	}
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderStatus, fmt.Sprintf("Yêu cầu trả hàng cho đơn %s đã được ghi nhận", order.OrderNumber), nil)
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -380,6 +392,10 @@ func (s *orderService) ShipOrder(orderID, sellerID string, req *dto.UpdateTracki
 	if err := s.orderRepo.UpdateStatus(ctx, orderID, model.OrderStatusShipped, history); err != nil {
 		return nil, err
 	}
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderStatus, fmt.Sprintf("Đơn hàng %s đang được giao", order.OrderNumber), map[string]interface{}{
+		"tracking_number":  req.TrackingNumber,
+		"shipping_carrier": req.ShippingCarrier,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -434,6 +450,9 @@ func (s *orderService) RejectOrder(orderID, sellerID string, req *dto.RejectOrde
 
 	// Restore stock
 	_ = s.restoreStock(ctx, order.Items)
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderCanceled, fmt.Sprintf("Đơn hàng %s đã bị từ chối", order.OrderNumber), map[string]interface{}{
+		"reason": req.Reason,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -468,6 +487,7 @@ func (s *orderService) ProcessRefund(orderID, sellerID string) (*dto.OrderRespon
 
 	// Restore stock
 	_ = s.restoreStock(ctx, order.Items)
+	s.notifyOrder(ctx, order, model.NotificationTypeRefund, fmt.Sprintf("Đơn hàng %s đã được hoàn tiền", order.OrderNumber), nil)
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -511,6 +531,9 @@ func (s *orderService) updateSellerOrderStatus(orderID, sellerID string, status 
 	if err := s.orderRepo.UpdateStatus(ctx, orderID, status, history); err != nil {
 		return nil, err
 	}
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderStatus, fmt.Sprintf("Đơn hàng %s: %s", order.OrderNumber, status.DisplayName()), map[string]interface{}{
+		"status": status,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -556,6 +579,14 @@ func (s *orderService) AdminUpdateStatus(orderID string, req *dto.UpdateOrderSta
 	if req.Status == model.OrderStatusCanceled && oldStatus != model.OrderStatusCanceled {
 		_ = s.restoreStock(ctx, order.Items)
 	}
+	notificationType := model.NotificationTypeOrderStatus
+	if req.Status == model.OrderStatusCanceled {
+		notificationType = model.NotificationTypeOrderCanceled
+	}
+	s.notifyOrder(ctx, order, notificationType, fmt.Sprintf("Đơn hàng %s: %s", order.OrderNumber, req.Status.DisplayName()), map[string]interface{}{
+		"status": req.Status,
+		"note":   req.Note,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -590,6 +621,9 @@ func (s *orderService) AdminMarkAsDelivered(orderID string) (*dto.OrderResponse,
 			return nil, err
 		}
 	}
+	s.notifyOrder(ctx, order, model.NotificationTypeOrderStatus, fmt.Sprintf("Đơn hàng %s đã giao thành công", order.OrderNumber), map[string]interface{}{
+		"status": model.OrderStatusDelivered,
+	})
 
 	return s.getAndReturnOrder(ctx, orderID)
 }
@@ -639,7 +673,17 @@ func (s *orderService) MarkAsPaid(orderID string) error {
 		return nil
 	}
 
-	return s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusPaid)
+	if err := s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusPaid); err != nil {
+		return err
+	}
+	s.notifySellerOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Khách đã thanh toán đơn %s", order.OrderNumber), map[string]interface{}{
+		"payment_status": model.PaymentStatusPaid,
+		"total":          order.Total,
+	})
+	s.notifyOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Thanh toán cho đơn %s đã thành công", order.OrderNumber), map[string]interface{}{
+		"payment_status": model.PaymentStatusPaid,
+	})
+	return nil
 }
 
 func (s *orderService) CreateZaloPayPayment(orderID, userID, role string) (*dto.ZaloPayPaymentResponse, error) {
@@ -693,7 +737,7 @@ func (s *orderService) CreateZaloPayPayment(orderID, userID, role string) (*dto.
 	}
 
 	appUser := order.CustomerID.Hex()
-	description := fmt.Sprintf("DigiMart - Thanh toan don hang %s", order.OrderNumber)
+	description := fmt.Sprintf("DigiMart - Thanh toán đơn hàng %s", order.OrderNumber)
 	macInput := fmt.Sprintf("%d|%s|%s|%d|%d|%s|%s",
 		config.Cfg.ZaloPay.AppID,
 		appTransID,
@@ -853,10 +897,24 @@ func (s *orderService) SyncZaloPayPayment(orderID, userID, role string, req *dto
 		if err := s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusPaid); err != nil {
 			return nil, err
 		}
+		s.notifySellerOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Khách đã thanh toán đơn %s", order.OrderNumber), map[string]interface{}{
+			"payment_status": model.PaymentStatusPaid,
+			"total":          order.Total,
+		})
+		s.notifyOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Thanh toán cho đơn %s đã thành công", order.OrderNumber), map[string]interface{}{
+			"payment_status": model.PaymentStatusPaid,
+		})
 	case 2:
 		if err := s.orderRepo.UpdatePaymentStatus(ctx, orderID, model.PaymentStatusFailed); err != nil {
 			return nil, err
 		}
+		s.notifySellerOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Thanh toán đơn %s thất bại", order.OrderNumber), map[string]interface{}{
+			"payment_status": model.PaymentStatusFailed,
+			"total":          order.Total,
+		})
+		s.notifyOrder(ctx, order, model.NotificationTypePaymentStatus, fmt.Sprintf("Thanh toán cho đơn %s thất bại", order.OrderNumber), map[string]interface{}{
+			"payment_status": model.PaymentStatusFailed,
+		})
 	case 3:
 		// ZaloPay is still processing; keep the local status as-is.
 	default:
@@ -867,6 +925,94 @@ func (s *orderService) SyncZaloPayPayment(orderID, userID, role string, req *dto
 }
 
 // ==================== Helper Methods ====================
+
+func (s *orderService) notifyOrder(ctx context.Context, order *model.Order, notificationType model.NotificationType, message string, metadata map[string]interface{}) {
+	if s.notification == nil || order == nil {
+		return
+	}
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+	metadata["order_id"] = order.ID.Hex()
+	metadata["order_number"] = order.OrderNumber
+	if status, exists := metadata["status"]; exists {
+		metadata["order_status"] = status
+	} else {
+		metadata["order_status"] = order.Status
+	}
+	if _, exists := metadata["payment_status"]; !exists {
+		metadata["payment_status"] = order.PaymentStatus
+	}
+
+	if _, err := s.notification.Create(ctx, CreateNotificationInput{
+		RecipientID: order.CustomerID.Hex(),
+		Type:        notificationType,
+		Message:     message,
+		Link:        "/orders",
+		Metadata:    metadata,
+	}); err != nil {
+		log.Printf("notification: failed to notify order %s: %v", order.ID.Hex(), err)
+	}
+}
+
+func (s *orderService) notifySellerOrder(ctx context.Context, order *model.Order, notificationType model.NotificationType, message string, metadata map[string]interface{}) {
+	if s.notification == nil || order == nil {
+		return
+	}
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+	metadata["order_id"] = order.ID.Hex()
+	metadata["order_number"] = order.OrderNumber
+	if status, exists := metadata["status"]; exists {
+		metadata["order_status"] = status
+	} else {
+		metadata["order_status"] = order.Status
+	}
+	if _, exists := metadata["payment_status"]; !exists {
+		metadata["payment_status"] = order.PaymentStatus
+	}
+	metadata["recipient_role"] = "seller"
+
+	recipientIDs := map[string]struct{}{}
+	if !order.SellerID.IsZero() {
+		recipientIDs[order.SellerID.Hex()] = struct{}{}
+	}
+	if s.userRepo != nil {
+		admins, _, err := s.userRepo.Find(ctx, repo.Filter{
+			"role":       model.AdminRole,
+			"deleted_at": bson.M{"$exists": false},
+		}, &repo.FindOptions{Limit: 100})
+		if err != nil {
+			log.Printf("notification: failed to list admins for order %s: %v", order.ID.Hex(), err)
+		}
+		for _, admin := range admins {
+			if admin != nil && !admin.ID.IsZero() {
+				recipientIDs[admin.ID.Hex()] = struct{}{}
+			}
+		}
+	}
+
+	for recipientID := range recipientIDs {
+		s.createOrderNotification(ctx, recipientID, notificationType, message, "/orders", metadata, "seller", order.ID.Hex())
+	}
+}
+
+func (s *orderService) createOrderNotification(ctx context.Context, recipientID string, notificationType model.NotificationType, message, link string, metadata map[string]interface{}, logScope, orderID string) {
+	copiedMetadata := map[string]interface{}{}
+	for key, value := range metadata {
+		copiedMetadata[key] = value
+	}
+	if _, err := s.notification.Create(ctx, CreateNotificationInput{
+		RecipientID: recipientID,
+		Type:        notificationType,
+		Message:     message,
+		Link:        link,
+		Metadata:    copiedMetadata,
+	}); err != nil {
+		log.Printf("notification: failed to notify %s for order %s: %v", logScope, orderID, err)
+	}
+}
 
 func (s *orderService) getOrderByID(ctx context.Context, orderID string) (*model.Order, error) {
 	order, err := s.orderRepo.GetByID(ctx, orderID)

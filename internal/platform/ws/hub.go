@@ -74,7 +74,7 @@ func (h *Hub) run(eventChannel bus.EventListener) {
 			switch event.Topic() {
 			case bus.TopicNotificationCreated:
 				payload := event.Payload()
-				if recipientID, ok := payload["recipientId"].(string); ok {
+				if recipientID, ok := payload["recipient_id"].(string); ok {
 					if notification, ok := payload["notification"].(interface{}); ok {
 						h.sendToUser(recipientID, dto.NewNotification, notification)
 					}

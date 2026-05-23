@@ -21,10 +21,9 @@ type Notification struct {
 type NotificationType string
 
 const (
-	NotificationTypeComment    NotificationType = "comment"
-	NotificationTypeLike       NotificationType = "like"
-	NotificationTypeFollow     NotificationType = "follow"
-	NotificationTypeMention    NotificationType = "mention"
-	NotificationTypeNewMessage NotificationType = "new_message"
-	NotificationTypeSystem     NotificationType = "system"
+	NotificationTypeOrderStatus   NotificationType = "order_status"
+	NotificationTypePaymentStatus NotificationType = "payment_status"
+	NotificationTypeOrderCanceled NotificationType = "order_canceled"
+	NotificationTypeRefund        NotificationType = "refund"
+	NotificationTypeSystem        NotificationType = "system"
 )

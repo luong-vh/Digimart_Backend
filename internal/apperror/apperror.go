@@ -73,7 +73,7 @@ func StatusFromError(err error) int {
 		return http.StatusForbidden
 	// 404 Not Found
 	case isErrorType(err, ErrUserNotFound, ErrCommunityNotFound, ErrCommunityDeleted, ErrMembershipNotFound, ErrProductNotFound, ErrCartNotFound, ErrCartItemNotFound,
-		ErrPostNotFound, ErrVoteNotFound, ErrDraftNotFound, ErrEmailNotRegistered, ErrProvinceNotFound, ErrWardNotFound, ErrOrderNotFound, ErrCategoryNotFound):
+		ErrPostNotFound, ErrVoteNotFound, ErrDraftNotFound, ErrEmailNotRegistered, ErrProvinceNotFound, ErrWardNotFound, ErrOrderNotFound, ErrCategoryNotFound, ErrNotificationNotFound):
 		return http.StatusNotFound
 	// 409 Conflict
 	case isErrorType(err, ErrUsernameExists, ErrEmailExists, ErrCommunityNameExists,
@@ -183,4 +183,7 @@ var (
 	ErrCategoryHasChildren   = AppError{Code: "CATEGORY_HAS_CHILDREN", Message: "Cannot delete category with child categories"}
 	ErrCategoryHasProducts   = AppError{Code: "CATEGORY_HAS_PRODUCTS", Message: "Cannot delete category with products"}
 	ErrInvalidParentCategory = AppError{Code: "INVALID_PARENT_CATEGORY", Message: "Invalid parent category"}
+
+	// Notification-related
+	ErrNotificationNotFound = AppError{Code: "NOTIFICATION_NOT_FOUND", Message: "Notification not found"}
 )

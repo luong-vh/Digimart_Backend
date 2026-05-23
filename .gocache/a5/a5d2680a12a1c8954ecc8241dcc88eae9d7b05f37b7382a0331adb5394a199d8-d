@@ -1,5 +1,0 @@
-./collections.go
-./config.go
-./env.go
-./mongo.go
-./redis.go
