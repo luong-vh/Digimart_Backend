@@ -2,7 +2,9 @@ package controller
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luong-vh/Digimart_Backend/internal/apperror"
@@ -42,6 +44,7 @@ func (c *ProductController) GetProductByID(ctx *gin.Context) {
 // GetProducts retrieves products with filtering and pagination
 func (c *ProductController) GetProducts(ctx *gin.Context) {
 	filter := repo.Filter{}
+	andFilters := make([]bson.M, 0, 2)
 
 	// Parse query parameters
 	if categoryID := ctx.Query("category_id"); categoryID != "" {
@@ -58,27 +61,47 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 	}
 
 	if search := ctx.Query("search"); search != "" {
-		filter["$or"] = []bson.M{
-			{"name": bson.M{"$regex": search, "$options": "i"}},
-			{"description": bson.M{"$regex": search, "$options": "i"}},
-		}
+		escapedSearch := regexp.QuoteMeta(search)
+		andFilters = append(andFilters, bson.M{
+			"$or": []bson.M{
+				{"name": bson.M{"$regex": escapedSearch, "$options": "i"}},
+				{"description": bson.M{"$regex": escapedSearch, "$options": "i"}},
+			},
+		})
+	}
+
+	if brand := strings.TrimSpace(ctx.Query("brand")); brand != "" {
+		filter["brand"] = bson.M{"$regex": regexp.QuoteMeta(brand), "$options": "i"}
 	}
 
 	// Price range filter
 	if minPrice := ctx.Query("min_price"); minPrice != "" {
 		if price, err := strconv.ParseFloat(minPrice, 64); err == nil {
-			filter["price"] = bson.M{"$gte": price}
+			filter["base_price"] = bson.M{"$gte": price}
 		}
 	}
 
 	if maxPrice := ctx.Query("max_price"); maxPrice != "" {
 		if price, err := strconv.ParseFloat(maxPrice, 64); err == nil {
-			if existing, ok := filter["price"].(bson.M); ok {
+			if existing, ok := filter["base_price"].(bson.M); ok {
 				existing["$lte"] = price
 			} else {
-				filter["price"] = bson.M{"$lte": price}
+				filter["base_price"] = bson.M{"$lte": price}
 			}
 		}
+	}
+
+	if inStock := strings.ToLower(strings.TrimSpace(ctx.Query("in_stock"))); inStock == "true" || inStock == "1" {
+		andFilters = append(andFilters, bson.M{
+			"$or": []bson.M{
+				{"is_has_variant": false, "stock_quantity": bson.M{"$gt": 0}},
+				{"is_has_variant": true, "variants.stock_quantity": bson.M{"$gt": 0}},
+			},
+		})
+	}
+
+	if len(andFilters) > 0 {
+		filter["$and"] = andFilters
 	}
 
 	// Pagination
@@ -103,6 +126,9 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 
 	// Sorting
 	sortField := ctx.DefaultQuery("sort_by", "created_at")
+	if sortField == "price" {
+		sortField = "base_price"
+	}
 	sortOrder := ctx.DefaultQuery("sort_order", "desc")
 	order := -1
 	if sortOrder == "asc" {
