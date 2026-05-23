@@ -27,6 +27,7 @@ type Repos struct {
 	repo.ProvinceRepo
 	repo.OrderRepo
 	repo.CategoryRepo
+	repo.NotificationRepo
 }
 
 type Services struct {
@@ -40,6 +41,7 @@ type Services struct {
 	service.ProvinceService
 	service.OrderService
 	service.CategoryService
+	service.NotificationService
 }
 type Controllers struct {
 	controller.AdminAuthController
@@ -52,6 +54,8 @@ type Controllers struct {
 	controller.ProvinceController
 	controller.OrderController
 	controller.CategoryController
+	controller.NotificationController
+	controller.WebSocketController
 }
 
 func initRepos(client *mongo.Client, db *mongo.Database) *Repos {
@@ -67,19 +71,20 @@ func initRepos(client *mongo.Client, db *mongo.Database) *Repos {
 		ProvinceRepo:          repo.NewProvinceRepo(db),
 		OrderRepo:             repo.NewOrderRepo(db),
 		CategoryRepo:          repo.NewCategoryRepo(db),
+		NotificationRepo:      repo.NewNotificationRepo(db),
 	}
 }
 
 func initServices(repos *Repos, redisClient *redis.Client, emailSender email.Sender, eventBus bus.EventBus, tokenService *auth.TokenService) *Services {
 	services := &Services{
-		AuthService:     service.NewAuthService(repos.UserRepo, repos.EmailVerificationRepo, repos.PasswordResetRepo, emailSender, redisClient, tokenService),
-		UserService:     service.NewUserService(repos.UserRepo, eventBus, redisClient),
-		MediaService:    service.NewMediaService(),
-		ProductService:  service.NewProductService(repos.ProductRepo, repos.UserRepo, eventBus, redisClient),
-		CartService:     service.NewCartService(repos.CartRepo, repos.ProductRepo, repos.UserRepo, eventBus, redisClient),
-		ProvinceService: service.NewProvinceService(repos.ProvinceRepo),
-		OrderService:    service.NewOrderService(repos.OrderRepo, repos.ProductRepo, repos.ProvinceRepo, repos.UserRepo),
-		CategoryService: service.NewCategoryService(repos.CategoryRepo),
+		AuthService:         service.NewAuthService(repos.UserRepo, repos.EmailVerificationRepo, repos.PasswordResetRepo, emailSender, redisClient, tokenService),
+		UserService:         service.NewUserService(repos.UserRepo, eventBus, redisClient),
+		MediaService:        service.NewMediaService(),
+		ProductService:      service.NewProductService(repos.ProductRepo, repos.UserRepo, eventBus, redisClient),
+		CartService:         service.NewCartService(repos.CartRepo, repos.ProductRepo, repos.UserRepo, eventBus, redisClient),
+		ProvinceService:     service.NewProvinceService(repos.ProvinceRepo),
+		NotificationService: service.NewNotificationService(repos.NotificationRepo, eventBus),
+		CategoryService:     service.NewCategoryService(repos.CategoryRepo),
 		//MembershipService:   service.NewMembershipService(repos.MembershipRepo, redisClient),
 		//ReputationService:   service.NewReputationService(repos.UserRepo, eventBus),
 		//NotificationService: service.NewNotificationService(repos.NotificationRepo, repos.UserRepo, repos.PostRepo, repos.CommentRepo, repos.CommunityRepo, eventBus, redisClient),
@@ -112,6 +117,7 @@ func initServices(repos *Repos, redisClient *redis.Client, emailSender email.Sen
 	//
 	//// AdminUserService for admin operations
 	services.AdminUserService = service.NewAdminUserService(repos.UserRepo)
+	services.OrderService = service.NewOrderService(repos.OrderRepo, repos.ProductRepo, repos.ProvinceRepo, repos.UserRepo, services.NotificationService)
 	//services.AdminCommunityService = service.NewAdminCommunityService(repos.CommunityRepo)
 	//services.AdminStatsService = service.NewAdminStatsService(repos.UserRepo, repos.CommunityRepo, repos.PostRepo, repos.CommentRepo, repos.ReportRepo)
 	services.AdminAuthService = service.NewAdminAuthService(repos.UserRepo, redisClient, tokenService)
@@ -121,14 +127,16 @@ func initServices(repos *Repos, redisClient *redis.Client, emailSender email.Sen
 
 func initControllers(services *Services, wsHub *ws.Hub, db *mongo.Database) *Controllers {
 	return &Controllers{
-		AuthController:     *controller.NewAuthController(services.AuthService),
-		UserController:     *controller.NewUserController(services.UserService),
-		MediaController:    *controller.NewMediaController(services.MediaService),
-		ProductController:  *controller.NewProductController(services.ProductService),
-		CartController:     *controller.NewCartController(services.CartService),
-		ProvinceController: *controller.NewProvinceController(services.ProvinceService),
-		OrderController:    *controller.NewOrderController(services.OrderService),
-		CategoryController: *controller.NewCategoryController(services.CategoryService),
+		AuthController:         *controller.NewAuthController(services.AuthService),
+		UserController:         *controller.NewUserController(services.UserService),
+		MediaController:        *controller.NewMediaController(services.MediaService),
+		ProductController:      *controller.NewProductController(services.ProductService),
+		CartController:         *controller.NewCartController(services.CartService),
+		ProvinceController:     *controller.NewProvinceController(services.ProvinceService),
+		OrderController:        *controller.NewOrderController(services.OrderService),
+		CategoryController:     *controller.NewCategoryController(services.CategoryService),
+		NotificationController: *controller.NewNotificationController(services.NotificationService),
+		WebSocketController:    *controller.NewWebSocketController(wsHub),
 		//CommunityController:      *controller.NewCommunityController(services.CommunityService),
 		//MembershipController:     *controller.NewMembershipController(services.MembershipService),
 		//PostController:           *controller.NewPostController(services.PostService),
@@ -171,6 +179,8 @@ func initRoutes(controllers *Controllers, r *gin.Engine) {
 	route.RegisterProvinceRoutes(api, &controllers.ProvinceController)
 	route.RegisterOrderRoutes(api, &controllers.OrderController)
 	route.RegisterCategoryRoutes(api, &controllers.CategoryController)
+	route.RegisterNotificationRoutes(api, &controllers.NotificationController)
+	route.RegisterWebSocketRoutes(api, &controllers.WebSocketController)
 	//route.RegisterCommunityRoutes(api, &controllers.CommunityController)
 	//route.RegisterMembershipRoutes(api, &controllers.MembershipController)
 	//route.RegisterPostRoutes(api, &controllers.PostController)

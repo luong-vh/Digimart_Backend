@@ -14,6 +14,10 @@ import (
 )
 
 func newCld() (*cloudinary.Cloudinary, error) {
+	if config.Cfg.Cloudinary.CloudName == "" || config.Cfg.Cloudinary.APIKey == "" || config.Cfg.Cloudinary.APISecret == "" {
+		return nil, errors.New("cloudinary configuration is incomplete")
+	}
+
 	return cloudinary.NewFromParams(config.Cfg.Cloudinary.CloudName, config.Cfg.Cloudinary.APIKey, config.Cfg.Cloudinary.APISecret)
 }
 
@@ -23,9 +27,14 @@ func Upload(file multipart.File) (*uploader.UploadResult, error) {
 		return nil, err
 	}
 
-	return cld.Upload.Upload(context.Background(), file, uploader.UploadParams{
+	params := uploader.UploadParams{
 		Folder: config.Cfg.Cloudinary.UploadFolder,
-	})
+	}
+	if config.Cfg.Cloudinary.UploadPreset != "" {
+		params.UploadPreset = config.Cfg.Cloudinary.UploadPreset
+	}
+
+	return cld.Upload.Upload(context.Background(), file, params)
 }
 
 func UploadVideo(file multipart.File) (*uploader.UploadResult, error) {
@@ -34,10 +43,15 @@ func UploadVideo(file multipart.File) (*uploader.UploadResult, error) {
 		return nil, err
 	}
 
-	return cld.Upload.Upload(context.Background(), file, uploader.UploadParams{
+	params := uploader.UploadParams{
 		Folder:       config.Cfg.Cloudinary.UploadFolder,
 		ResourceType: "video",
-	})
+	}
+	if config.Cfg.Cloudinary.UploadPreset != "" {
+		params.UploadPreset = config.Cfg.Cloudinary.UploadPreset
+	}
+
+	return cld.Upload.Upload(context.Background(), file, params)
 }
 
 func Delete(publicID string) (*uploader.DestroyResult, error) {
@@ -73,9 +87,26 @@ func UploadImages(files []*multipart.FileHeader) ([]*model.Image, error) {
 			lastErr = err
 			continue
 		}
+		if result == nil {
+			lastErr = errors.New("cloudinary upload returned empty response")
+			continue
+		}
+		if result.Error.Message != "" {
+			lastErr = fmt.Errorf("cloudinary upload failed: %s", result.Error.Message)
+			continue
+		}
+
+		imageURL := result.SecureURL
+		if imageURL == "" {
+			imageURL = result.URL
+		}
+		if imageURL == "" || result.PublicID == "" {
+			lastErr = errors.New("cloudinary upload returned empty url or public_id")
+			continue
+		}
 
 		uploadedImages = append(uploadedImages, &model.Image{
-			URL:        result.SecureURL,
+			URL:        imageURL,
 			PublicID:   result.PublicID,
 			UploadedAt: time.Now(),
 		})
@@ -114,9 +145,26 @@ func UploadVideos(files []*multipart.FileHeader) ([]*model.Video, error) {
 			lastErr = err
 			continue
 		}
+		if result == nil {
+			lastErr = errors.New("cloudinary upload returned empty response")
+			continue
+		}
+		if result.Error.Message != "" {
+			lastErr = fmt.Errorf("cloudinary upload failed: %s", result.Error.Message)
+			continue
+		}
+
+		videoURL := result.SecureURL
+		if videoURL == "" {
+			videoURL = result.URL
+		}
+		if videoURL == "" || result.PublicID == "" {
+			lastErr = errors.New("cloudinary upload returned empty url or public_id")
+			continue
+		}
 
 		uploadedVideos = append(uploadedVideos, &model.Video{
-			URL:        result.SecureURL,
+			URL:        videoURL,
 			PublicID:   result.PublicID,
 			UploadedAt: time.Now(),
 		})
