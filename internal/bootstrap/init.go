@@ -153,6 +153,7 @@ func initRoutes(controllers *Controllers, r *gin.Engine) {
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
+	r.GET("/metrics", middleware.MetricsHandler())
 
 	// ⚠️ DEBUG ONLY - Remove in production
 	//r.POST("/debug/create-admin", controllers.DebugController.CreateAdminUser)
@@ -202,8 +203,9 @@ func Init() (*gin.Engine, error) {
 
 	client := config.NewMongoClient()
 	db := client.Database(config.Cfg.DBName)
-	router := gin.Default()
+	router := gin.New()
 	router.MaxMultipartMemory = 10 << 20 // 10 MB
+	router.Use(middleware.RequestID(), middleware.Metrics(), middleware.RequestLogger(), gin.Recovery())
 
 	router.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
