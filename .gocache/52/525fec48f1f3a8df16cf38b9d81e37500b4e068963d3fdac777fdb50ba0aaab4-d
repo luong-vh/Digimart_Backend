@@ -1,0 +1,10 @@
+./admin_auth_route.go
+./admin_user_route.go
+./auth_route.go
+./cart_route.go
+./category_route.go
+./media_route.go
+./order_route.go
+./product_route.go
+./province_route.go
+./user_route.go

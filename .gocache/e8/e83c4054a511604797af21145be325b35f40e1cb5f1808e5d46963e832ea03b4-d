@@ -1,0 +1,10 @@
+./admin_auth_controller.go
+./admin_user_controller.go
+./auth_controller.go
+./cart_controller.go
+./category_controller.go
+./media_controller.go
+./order_controller.go
+./product_controller.go
+./province_controller.go
+./user_controller.go

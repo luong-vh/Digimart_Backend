@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../digimart"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "digimart"
+	}
+}

@@ -25,6 +25,7 @@ type AppConfig struct {
 	Google               GoogleConfig
 	Cloudinary           CloudinaryConfig
 	Gemini               GeminiConfig
+	ZaloPay              ZaloPayConfig
 }
 
 // SMTPConfig holds the email server configuration
@@ -67,6 +68,17 @@ type GeminiConfig struct {
 	ConfidenceThreshold float64
 	Timeout             int
 	MaxRetries          int
+}
+
+// ZaloPayConfig holds sandbox/merchant configuration for ZaloPay.
+type ZaloPayConfig struct {
+	AppID       int
+	Key1        string
+	Key2        string
+	CreateURL   string
+	QueryURL    string
+	CallbackURL string
+	RedirectURL string
 }
 
 // Cfg is a global variable holding the application's configuration
@@ -123,6 +135,14 @@ func LoadConfig() {
 	Cfg.Gemini.ConfidenceThreshold = getEnvFloat("GEMINI_CONFIDENCE_THRESHOLD", 0.7)
 	Cfg.Gemini.Timeout = getEnvInt("GEMINI_TIMEOUT", 15)
 	Cfg.Gemini.MaxRetries = getEnvInt("GEMINI_MAX_RETRIES", 3)
+
+	Cfg.ZaloPay.AppID = getEnvInt("ZALOPAY_APP_ID", 2553)
+	Cfg.ZaloPay.Key1 = getEnv("ZALOPAY_KEY1", "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL")
+	Cfg.ZaloPay.Key2 = getEnv("ZALOPAY_KEY2", "kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz")
+	Cfg.ZaloPay.CreateURL = getEnv("ZALOPAY_CREATE_URL", "https://sb-openapi.zalopay.vn/v2/create")
+	Cfg.ZaloPay.QueryURL = getEnv("ZALOPAY_QUERY_URL", "https://sb-openapi.zalopay.vn/v2/query")
+	Cfg.ZaloPay.CallbackURL = getEnv("ZALOPAY_CALLBACK_URL", "")
+	Cfg.ZaloPay.RedirectURL = getEnv("ZALOPAY_REDIRECT_URL", Cfg.FrontendURL+"/#/orders")
 
 	log.Println("Configuration loaded successfully")
 }
