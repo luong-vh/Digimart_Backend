@@ -71,6 +71,7 @@ func (s *productService) CreateProduct(ctx context.Context, req dto.CreateProduc
 		Name:            req.Name,
 		Description:     req.Description,
 		Brand:           req.Brand,
+		Specs:           req.NormalizedSpecs(),
 		Thumbnail:       req.Thumbnail,
 		Images:          req.Images,
 		Videos:          req.Videos,
@@ -119,6 +120,9 @@ func (s *productService) UpdateProduct(ctx context.Context, productID string, re
 	if req.Brand != nil {
 		product.Brand = *req.Brand
 	}
+	if specs, ok := req.NormalizedSpecs(); ok {
+		product.Specs = specs
+	}
 	if req.CategoryID != nil {
 		categoryObjID, err := primitive.ObjectIDFromHex(*req.CategoryID)
 		if err != nil {
@@ -129,6 +133,12 @@ func (s *productService) UpdateProduct(ctx context.Context, productID string, re
 	if req.Thumbnail != nil {
 		oldImagePublicIDs = append(oldImagePublicIDs, product.Thumbnail.PublicID)
 		product.Thumbnail = *req.Thumbnail
+	}
+	if req.Images != nil {
+		product.Images = req.Images
+	}
+	if req.Videos != nil {
+		product.Videos = req.Videos
 	}
 	if req.BasePrice != nil {
 		product.BasePrice = *req.BasePrice

@@ -198,6 +198,11 @@ func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCar
 		variantObjID = &vid
 	}
 
+	variantIDPtr := (*string)(nil)
+	if req.VariantID != "" {
+		variantIDPtr = &req.VariantID
+	}
+
 	// Check if item already exists in cart
 	cart, err := s.cartRepo.GetByUserID(ctx, userID)
 	if err != nil {
@@ -211,6 +216,13 @@ func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCar
 				(item.VariantID != nil && variantObjID != nil && *item.VariantID == *variantObjID) {
 				// Item exists, update quantity
 				newQuantity := item.Quantity + req.Quantity
+				isAvailable, _, err := s.productRepo.CheckAvailability(ctx, req.ProductID, variantIDPtr, newQuantity)
+				if err != nil {
+					return nil, err
+				}
+				if !isAvailable {
+					return nil, apperror.ErrInsufficientStock
+				}
 				err = s.cartRepo.UpdateItemQuantity(ctx, userID, item.ID.Hex(), newQuantity)
 				if err != nil {
 					return nil, err
@@ -218,6 +230,14 @@ func (s *cartService) AddItem(ctx context.Context, userID string, req dto.AddCar
 				return s.GetCart(ctx, userID)
 			}
 		}
+	}
+
+	isAvailable, _, err := s.productRepo.CheckAvailability(ctx, req.ProductID, variantIDPtr, req.Quantity)
+	if err != nil {
+		return nil, err
+	}
+	if !isAvailable {
+		return nil, apperror.ErrInsufficientStock
 	}
 
 	// Item not found, add new item

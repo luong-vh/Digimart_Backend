@@ -82,6 +82,10 @@ components:
           type: string
         brand:
           type: string
+        specs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSpec'
         thumbnail:
           $ref: '#/components/schemas/Image'
         images:
@@ -151,6 +155,17 @@ components:
         stock_quantity:
           type: integer
 
+    ProductSpec:
+      type: object
+      required:
+        - label
+        - value
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+
     ProductResponse:
       type: object
       properties:
@@ -164,6 +179,10 @@ components:
           type: string
         brand:
           type: string
+        specs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSpec'
         thumbnail:
           $ref: '#/components/schemas/Image'
         images:
@@ -483,6 +502,25 @@ paths:
           in: query
           schema:
             type: string
+        - name: brand
+          in: query
+          schema:
+            type: string
+        - name: spec_key
+          in: query
+          description: Filter products that have a spec label matching this value.
+          schema:
+            type: string
+        - name: spec_value
+          in: query
+          description: Optional value paired with spec_key.
+          schema:
+            type: string
+        - name: specs
+          in: query
+          description: Comma-separated spec filters in key:value form, for example RAM:16GB,Storage:512GB.
+          schema:
+            type: string
         - name: min_price
           in: query
           schema:
@@ -491,6 +529,10 @@ paths:
           in: query
           schema:
             type: number
+        - name: in_stock
+          in: query
+          schema:
+            type: boolean
         - name: page
           in: query
           schema:
