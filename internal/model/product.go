@@ -12,9 +12,10 @@ type Product struct {
 	CategoryID primitive.ObjectID `bson:"category_id" json:"category_id"`
 
 	// Basic Info
-	Name        string `bson:"name" json:"name"`
-	Description string `bson:"description" json:"description"`
-	Brand       string `bson:"brand,omitempty" json:"brand,omitempty"` // Thương hiệu
+	Name        string        `bson:"name" json:"name"`
+	Description string        `bson:"description" json:"description"`
+	Brand       string        `bson:"brand,omitempty" json:"brand,omitempty"` // Thương hiệu
+	Specs       []ProductSpec `bson:"specs,omitempty" json:"specs,omitempty"`
 
 	IsHasVariant    bool    `bson:"is_has_variant" json:"is_has_variant"`
 	BasePrice       float64 `bson:"base_price" json:"base_price"`
@@ -58,4 +59,9 @@ type ProductVariant struct {
 	PriceAdjustment float64            `bson:"price_adjustment" json:"price_adjustment"`
 	FinalPrice      float64            `bson:"final_price" json:"final_price"`
 	StockQuantity   int                `bson:"stock_quantity" json:"stock_quantity"`
+}
+
+type ProductSpec struct {
+	Label string `bson:"label" json:"label"`
+	Value string `bson:"value" json:"value"`
 }

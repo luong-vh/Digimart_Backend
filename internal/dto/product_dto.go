@@ -11,6 +11,9 @@ type CreateProductRequest struct {
 	Name            string                 `json:"name" validate:"required,min=1,max=200"`
 	Description     string                 `json:"description" validate:"required"`
 	Brand           string                 `json:"brand,omitempty"`
+	Specs           []model.ProductSpec    `json:"specs,omitempty"`
+	Attributes      []model.ProductSpec    `json:"attributes,omitempty"`
+	Specifications  []model.ProductSpec    `json:"specifications,omitempty"`
 	Thumbnail       model.Image            `json:"thumbnail" validate:"required"`
 	Images          []model.Image          `json:"images"`
 	Videos          []model.Video          `json:"videos,omitempty"`
@@ -26,7 +29,12 @@ type UpdateProductRequest struct {
 	Name            *string              `json:"name,omitempty" validate:"omitempty,min=1,max=200"`
 	Description     *string              `json:"description,omitempty"`
 	Brand           *string              `json:"brand,omitempty"`
+	Specs           []model.ProductSpec  `json:"specs,omitempty"`
+	Attributes      []model.ProductSpec  `json:"attributes,omitempty"`
+	Specifications  []model.ProductSpec  `json:"specifications,omitempty"`
 	Thumbnail       *model.Image         `json:"thumbnail,omitempty"`
+	Images          []model.Image        `json:"images,omitempty"`
+	Videos          []model.Video        `json:"videos,omitempty"`
 	BasePrice       *float64             `json:"base_price,omitempty" validate:"omitempty,min=0"`
 	DiscountPercent *float64             `json:"discount_percent,omitempty" validate:"omitempty,min=0,max=100"`
 	StockQuantity   *int                 `json:"stock_quantity,omitempty"`
@@ -66,7 +74,6 @@ type UpdateVariantRequest struct {
 	StockQuantity   *int     `json:"stock_quantity,omitempty" validate:"omitempty,min=0"`
 }
 
-
 // Response DTOs
 type ProductResponse struct {
 	ID              string                 `json:"id"`
@@ -74,6 +81,9 @@ type ProductResponse struct {
 	Name            string                 `json:"name"`
 	Description     string                 `json:"description"`
 	Brand           string                 `json:"brand,omitempty"`
+	Specs           []model.ProductSpec    `json:"specs,omitempty"`
+	Attributes      []model.ProductSpec    `json:"attributes,omitempty"`
+	Specifications  []model.ProductSpec    `json:"specifications,omitempty"`
 	Thumbnail       model.Image            `json:"thumbnail"`
 	Images          []model.Image          `json:"images"`
 	Videos          []model.Video          `json:"videos,omitempty"`
@@ -97,6 +107,29 @@ type ProductStatsResponse struct {
 	NewThisWeek int64 `json:"new_this_week"`
 }
 
+func (r CreateProductRequest) NormalizedSpecs() []model.ProductSpec {
+	if len(r.Specs) > 0 {
+		return r.Specs
+	}
+	if len(r.Attributes) > 0 {
+		return r.Attributes
+	}
+	return r.Specifications
+}
+
+func (r UpdateProductRequest) NormalizedSpecs() ([]model.ProductSpec, bool) {
+	if r.Specs != nil {
+		return r.Specs, true
+	}
+	if r.Attributes != nil {
+		return r.Attributes, true
+	}
+	if r.Specifications != nil {
+		return r.Specifications, true
+	}
+	return nil, false
+}
+
 type VariantResponse struct {
 	ID              string  `json:"id"`
 	Title           string  `json:"title"`
@@ -118,6 +151,9 @@ func FromProduct(product *model.Product) *ProductResponse {
 		Name:            product.Name,
 		Description:     product.Description,
 		Brand:           product.Brand,
+		Specs:           product.Specs,
+		Attributes:      product.Specs,
+		Specifications:  product.Specs,
 		Thumbnail:       product.Thumbnail,
 		Images:          product.Images,
 		Videos:          product.Videos,

@@ -66,12 +66,43 @@ func (c *ProductController) GetProducts(ctx *gin.Context) {
 			"$or": []bson.M{
 				{"name": bson.M{"$regex": escapedSearch, "$options": "i"}},
 				{"description": bson.M{"$regex": escapedSearch, "$options": "i"}},
+				{"brand": bson.M{"$regex": escapedSearch, "$options": "i"}},
+				{"specs.label": bson.M{"$regex": escapedSearch, "$options": "i"}},
+				{"specs.value": bson.M{"$regex": escapedSearch, "$options": "i"}},
 			},
 		})
 	}
 
 	if brand := strings.TrimSpace(ctx.Query("brand")); brand != "" {
 		filter["brand"] = bson.M{"$regex": regexp.QuoteMeta(brand), "$options": "i"}
+	}
+
+	if specKey := strings.TrimSpace(ctx.Query("spec_key")); specKey != "" {
+		specValue := strings.TrimSpace(ctx.Query("spec_value"))
+		specMatch := bson.M{
+			"label": bson.M{"$regex": regexp.QuoteMeta(specKey), "$options": "i"},
+		}
+		if specValue != "" {
+			specMatch["value"] = bson.M{"$regex": regexp.QuoteMeta(specValue), "$options": "i"}
+		}
+		andFilters = append(andFilters, bson.M{"specs": bson.M{"$elemMatch": specMatch}})
+	}
+
+	if specs := strings.TrimSpace(ctx.Query("specs")); specs != "" {
+		for _, pair := range strings.Split(specs, ",") {
+			key, value, ok := strings.Cut(pair, ":")
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
+			if !ok || key == "" || value == "" {
+				continue
+			}
+			andFilters = append(andFilters, bson.M{
+				"specs": bson.M{"$elemMatch": bson.M{
+					"label": bson.M{"$regex": regexp.QuoteMeta(key), "$options": "i"},
+					"value": bson.M{"$regex": regexp.QuoteMeta(value), "$options": "i"},
+				}},
+			})
+		}
 	}
 
 	// Price range filter
